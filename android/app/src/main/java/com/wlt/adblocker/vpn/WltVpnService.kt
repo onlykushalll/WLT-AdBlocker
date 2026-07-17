@@ -40,16 +40,45 @@ class WltVpnService : VpnService() {
     private var packetLoopJob: Job? = null
     private var statsJob: Job? = null
     @Volatile private var isRunning = false
+    @Volatile var pausedUntil: Long = 0L // epoch millis; 0 = not paused
 
     private val kotlinFallbackEngine = KotlinBlockEngine()
     private val dnsResolver = DnsResolver("cloudflare")
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand")
+        when (intent?.action) {
+            ACTION_PAUSE -> {
+                val minutes = intent.getIntExtra(EXTRA_PAUSE_MINUTES, 5)
+                pausedUntil = System.currentTimeMillis() + minutes * 60_000L
+                updateNotification()
+                Log.i(TAG, "Paused for $minutes minutes until $pausedUntil")
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                pausedUntil = 0L
+                updateNotification()
+                Log.i(TAG, "Resumed protection")
+                return START_STICKY
+            }
+        }
         startForeground(NotificationHelper.NOTIF_VPN_ID, buildNotification("WLT active — protecting"))
         startVpn()
         return START_STICKY
     }
+
+    private fun updateNotification() {
+        val notif = if (pausedUntil > System.currentTimeMillis()) {
+            val remaining = ((pausedUntil - System.currentTimeMillis()) / 60000).coerceAtLeast(1)
+            buildNotification("Paused — resumes in ${remaining}m")
+        } else {
+            buildNotification("WLT active — protecting")
+        }
+        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        nm.notify(NotificationHelper.NOTIF_VPN_ID, notif)
+    }
+
+    private fun isPaused(): Boolean = pausedUntil > System.currentTimeMillis()
 
     private fun startVpn() {
         if (isRunning) { Log.w(TAG, "VPN already running"); return }
@@ -152,6 +181,12 @@ class WltVpnService : VpnService() {
 
         val domain = DnsPacketParser.extractQueryDomain(dnsPayload, dnsLength)
         if (domain == null) {
+            forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output)
+            return
+        }
+
+        // If paused, forward everything without blocking
+        if (isPaused()) {
             forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output)
             return
         }
@@ -280,5 +315,8 @@ class WltVpnService : VpnService() {
 
     companion object {
         private const val TAG = "WltVpnService"
+        const val ACTION_PAUSE = "com.wlt.adblocker.PAUSE"
+        const val ACTION_RESUME = "com.wlt.adblocker.RESUME"
+        const val EXTRA_PAUSE_MINUTES = "pause_minutes"
     }
 }

@@ -74,6 +74,10 @@ fun DashboardScreen(vpnEnabled: Boolean, onToggleVpn: (Boolean) -> Unit) {
     var allowed by remember { mutableLongStateOf(0L) }
     var topDomains by remember { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
     var history by remember { mutableStateOf<List<StatsHistory.Point>>(emptyList()) }
+    var showPauseDialog by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(false) }
+    var pauseRemaining by remember { mutableStateOf(0) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(vpnEnabled) {
         while (vpnEnabled) {
@@ -90,7 +94,18 @@ fun DashboardScreen(vpnEnabled: Boolean, onToggleVpn: (Boolean) -> Unit) {
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { ProtectionCard(vpnEnabled = vpnEnabled, onToggle = onToggleVpn) }
+        item { ProtectionCard(vpnEnabled = vpnEnabled, onToggle = onToggleVpn, onPause = { showPauseDialog = true }) }
+        if (isPaused) {
+            item {
+                PauseStatusCard(remainingMinutes = pauseRemaining) {
+                    val resumeIntent = android.content.Intent(context, com.wlt.adblocker.vpn.WltVpnService::class.java).apply {
+                        action = com.wlt.adblocker.vpn.WltVpnService.ACTION_RESUME
+                    }
+                    context.startService(resumeIntent)
+                    isPaused = false
+                }
+            }
+        }
         item { StatsGrid(queries = queries, blocked = blocked, allowed = allowed) }
         if (vpnEnabled && history.size > 1) {
             item { BlockRateChart(history) }
@@ -112,10 +127,26 @@ fun DashboardScreen(vpnEnabled: Boolean, onToggleVpn: (Boolean) -> Unit) {
                 "Combines the best of uBlock, AdGuard, Rethink, HostShield, and BlockAds — plus Game Ad Intelligence and Ad Forensics no other blocker has. Free, open source.")
         }
     }
+
+    if (showPauseDialog) {
+        PauseProtectionDialog(
+            onDismiss = { showPauseDialog = false },
+            onPause = { minutes ->
+                showPauseDialog = false
+                isPaused = true
+                pauseRemaining = minutes
+                val pauseIntent = android.content.Intent(context, com.wlt.adblocker.vpn.WltVpnService::class.java).apply {
+                    action = com.wlt.adblocker.vpn.WltVpnService.ACTION_PAUSE
+                    putExtra(com.wlt.adblocker.vpn.WltVpnService.EXTRA_PAUSE_MINUTES, minutes)
+                }
+                context.startService(pauseIntent)
+            }
+        )
+    }
 }
 
 @Composable
-private fun ProtectionCard(vpnEnabled: Boolean, onToggle: (Boolean) -> Unit) {
+private fun ProtectionCard(vpnEnabled: Boolean, onToggle: (Boolean) -> Unit, onPause: () -> Unit = {}) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulse by infiniteTransition.animateFloat(
         initialValue = 0.6f, targetValue = 1f,
@@ -154,7 +185,17 @@ private fun ProtectionCard(vpnEnabled: Boolean, onToggle: (Boolean) -> Unit) {
                 fontSize = 13.sp,
                 color = if (vpnEnabled) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(16.dp))
-            Switch(checked = vpnEnabled, onCheckedChange = onToggle, modifier = Modifier.padding(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = vpnEnabled, onCheckedChange = onToggle)
+                if (vpnEnabled) {
+                    Spacer(Modifier.width(16.dp))
+                    androidx.compose.material3.OutlinedButton(onClick = onPause) {
+                        Icon(Icons.Filled.PauseCircle, contentDescription = "Pause", modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Pause", fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 }
