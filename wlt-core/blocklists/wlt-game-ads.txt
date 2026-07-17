@@ -1,0 +1,131 @@
+# WLT Game Ads Blocklist — Curated mobile game ad SDK domains
+# This is WLT's unique contribution: a dedicated list for game ad networks
+# that goes beyond generic ad blocklists. Includes SDK telemetry, ad serving,
+# and tracking endpoints for: AdMob, Unity, AppLovin, ironSource, Chartboost,
+# Vungle, Meta Audience Network, AdColony, Mintegral, Fyber, Tapjoy, InMobi.
+#
+# Format: one domain per line. Wildcards via *.example.com.
+# Last updated: 2026-07
+
+# === Google AdMob / AdSense / DoubleClick ===
+googleads.g.doubleclick.net
+pagead2.googlesyndication.com
+googleads4.g.doubleclick.net
+adclick.g.doubleclick.net
+ad.doubleclick.net
+adservice.google.com
+pubads.g.doubleclick.net
+admob.google.com
+ads.google.com
+googlesyndication.com
+googleadservices.com
+googletagservices.com
+doubleclick.net
+*.doubleclick.net
+*.googlesyndication.com
+*.googleadservices.com
+*.googletagservices.com
+
+# === Unity Ads ===
+unityads.unity3d.com
+ads.unityads.unity3d.com
+config.unityads.unity3d.com
+cdp.cloud.unity3d.com
+perf-events.cloud.unity3d.com
+cdn.unity.com
+api.unityads.unity3d.com
+*.unityads.unity3d.com
+*.cloud.unity3d.com
+
+# === AppLovin ===
+applovin.com
+rt.applovin.com
+ms.applovin.com
+vid.applovin.com
+d.applovin.com
+pdn.applovin.com
+applovin-thirdparty.com
+*.applovin.com
+
+# === ironSource ===
+ironsrc.com
+api.ironsrc.com
+events.ironsrc.com
+cdn.ironsrc.com
+unity.ironsrc.com
+*.ironsrc.com
+
+# === Chartboost ===
+chartboost.com
+live.chartboost.com
+api.chartboost.com
+charts.chartboost.com
+*.chartboost.com
+
+# === Vungle (Liftoff) ===
+vungle.com
+api.vungle.com
+events.vungle.com
+cdn.vungle.com
+logger.vungle.com
+*.vungle.com
+
+# === Meta Audience Network ===
+an.facebook.com
+ads.facebook.com
+fb-analytics.com
+*.an.facebook.com
+
+# === AdColony ===
+adcolony.com
+ads.adcolony.com
+androidads.adcolony.com
+cdn.adcolony.com
+*.adcolony.com
+
+# === Mintegral ===
+mintegral.com
+api.mintegral.com
+cdn.mintegral.com
+adsdk.mintegral.com
+*.mintegral.com
+
+# === Fyber / Digital Turbine ===
+fyber.com
+engine.fyber.com
+api.fyber.com
+cdn.fyber.com
+*.fyber.com
+
+# === Tapjoy ===
+tapjoy.com
+api.tapjoy.com
+connect.tapjoy.com
+ads.tapjoy.com
+*.tapjoy.com
+
+# === InMobi ===
+inmobi.com
+api.inmobi.com
+cdn.inmobi.com
+i.l.inmobi.com
+*.inmobi.com
+
+# === Common mediation/analytics SDKs that leak data ===
+appsflyer.com
+events.appsflyer.com
+api.appsflyer.com
+*.appsflyer.com
+adjust.com
+app.adjust.com
+*.adjust.com
+kochava.com
+*.kochava.com
+branch.io
+api.branch.io
+*.branch.io
+
+# === Crash/telemetry that's often used for ad attribution ===
+# Disabled by default — uncomment if you want maximum privacy:
+# crashlytics.googleapis.com
+# firebase-settings.crashlytics.com

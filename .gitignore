@@ -1,0 +1,35 @@
+﻿# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.keystore
+*.jks
+local.properties
+.gradle/
+build/
+/app/build/
+*.iml
+.idea/
+captures/
+.cxx/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+wlt-core/wlt.aar
+wlt-core/*.aar
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log

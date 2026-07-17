@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WLT Adblocker</string>
+    <string name="vpn_session">WLT Ad Blocking</string>
+    <string name="vpn_protected">Protected — WLT active</string>
+    <string name="vpn_not_protected">Not protected — tap to enable</string>
+    <string name="permission_vpn_required">VPN permission required to filter ads system-wide</string>
+</resources>

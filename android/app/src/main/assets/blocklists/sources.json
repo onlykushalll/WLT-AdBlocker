@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "update_interval_hours": 24,
+  "sources": [
+    {
+      "name": "WLT Game Ads",
+      "path": "blocklists/wlt-game-ads.txt",
+      "format": "domains",
+      "enabled": true,
+      "category": "game-ads",
+      "bundled": true
+    },
+    {
+      "name": "WLT Passthrough",
+      "path": "blocklists/wlt-passthrough.txt",
+      "format": "domains",
+      "enabled": true,
+      "category": "allow",
+      "bundled": true
+    },
+    {
+      "name": "WLT CNAME Cloak",
+      "path": "blocklists/wlt-cname-cloak.txt",
+      "format": "domains",
+      "enabled": true,
+      "category": "cname-cloak",
+      "bundled": true
+    },
+    {
+      "name": "WLT Game IPs",
+      "path": "blocklists/wlt-game-ips.txt",
+      "format": "ip",
+      "enabled": false,
+      "category": "ip",
+      "bundled": true
+    },
+    {
+      "name": "OISD Big",
+      "url": "https://big.oisd.nl/domainswild",
+      "format": "domains",
+      "enabled": true,
+      "category": "ads",
+      "description": "Curated blocklist, focuses on ads/trackers without breakage"
+    },
+    {
+      "name": "AdGuard DNS Filter",
+      "url": "https://adguardteam.github.io/AdGuardDNSFilter/Filters/filter.txt",
+      "format": "adblock",
+      "enabled": true,
+      "category": "ads",
+      "description": "AdGuard's flagship DNS filter"
+    },
+    {
+      "name": "HaGeZi Normal",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/normal.txt",
+      "format": "domains",
+      "enabled": true,
+      "category": "ads",
+      "description": "Balanced blocking — good coverage, low breakage"
+    },
+    {
+      "name": "HaGeZi Pro",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt",
+      "format": "domains",
+      "enabled": false,
+      "category": "ads",
+      "description": "More aggressive — may break some sites",
+      "tier_warning": "Aggressive"
+    },
+    {
+      "name": "HaGeZi Pro++",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/proplus.txt",
+      "format": "domains",
+      "enabled": false,
+      "category": "ads",
+      "description": "Maximum blocking — will break some apps",
+      "tier_warning": "Maximum"
+    },
+    {
+      "name": "AdGuard Tracking Protection",
+      "url": "https://adguardteam.github.io/AdGuardDNSFilter/Filters/replace/neohosts.txt",
+      "format": "adblock",
+      "enabled": false,
+      "category": "trackers"
+    },
+    {
+      "name": "EasyPrivacy",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "format": "adblock",
+      "enabled": false,
+      "category": "trackers",
+      "description": "Tracking/analytic domains"
+    },
+    {
+      "name": "StevenBlack Unified",
+      "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+      "format": "hosts",
+      "enabled": false,
+      "category": "ads"
+    },
+    {
+      "name": "MalwareDomainList",
+      "url": "https://www.malwaredomainlist.com/hostslist/hosts.txt",
+      "format": "hosts",
+      "enabled": false,
+      "category": "malware"
+    },
+    {
+      "name": "URLhaus Malware",
+      "url": "https://urlhaus.abuse.ch/downloads/hostfile/",
+      "format": "hosts",
+      "enabled": false,
+      "category": "malware"
+    },
+    {
+      "name": "NextDNS Cryptojacking",
+      "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/tif.txt",
+      "format": "domains",
+      "enabled": false,
+      "category": "crypto"
+    }
+  ]
+}

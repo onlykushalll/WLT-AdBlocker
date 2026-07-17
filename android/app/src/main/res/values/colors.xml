@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="wlt_green">#FF00C896</color>
+    <color name="wlt_green_dark">#FF00A87E</color>
+    <color name="wlt_bg_light">#FFF7FAF8</color>
+    <color name="wlt_bg_dark">#FF0A0F0D</color>
+</resources>

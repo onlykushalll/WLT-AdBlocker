@@ -1,0 +1,24 @@
+# WLT Game SDK Hardcoded IP Blocklist
+# IPs that some game ad SDKs connect to directly, bypassing DNS.
+# Compiled from: reverse-engineering reports, community submissions, public lists.
+# Use with caution — IPs change. SNI layer is preferred when possible.
+#
+# Format: one IP per line. Supports IPv4 and IPv6.
+
+# === Google ad service ranges (subset) ===
+# Note: blocking entire Google ranges can break legitimate services.
+# We only list specific ad-serving IPs observed in the wild.
+# 172.217.0.0/16 — too broad, handled by SNI instead.
+
+# === AdColony legacy hardcoded endpoints ===
+# 23.21.62.48
+# 50.16.196.142
+
+# === Chartboost legacy ===
+# 54.230.86.45
+# 99.86.0.50
+
+# These are commented out by default — IP blocking is risky and IPs change.
+# The SNI layer (Layer 2) is the recommended approach for SDK connections
+# that skip DNS, because SNI reveals the hostname without needing to maintain
+# an IP database.
