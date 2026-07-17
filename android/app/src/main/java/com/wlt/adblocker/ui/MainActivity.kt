@@ -11,9 +11,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.wlt.adblocker.data.PrefsRepository
 import com.wlt.adblocker.data.WltDataStore
 import com.wlt.adblocker.ui.theme.WltTheme
 import com.wlt.adblocker.vpn.WltVpnService
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -31,6 +33,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Check if auto-start was requested (from quick settings tile)
+        val autoStart = intent?.getBooleanExtra("auto_start_vpn", false) ?: false
+
         setContent {
             WltTheme {
                 Surface(
@@ -42,6 +48,11 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+
+        if (autoStart) {
+            // Requested from tile — trigger VPN start
+            requestVpnToggle(true)
         }
     }
 

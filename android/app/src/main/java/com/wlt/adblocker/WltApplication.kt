@@ -1,9 +1,7 @@
 package com.wlt.adblocker
 
 import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.os.Build
+import com.wlt.adblocker.data.BlocklistUpdateWorker
 import com.wlt.adblocker.data.WltDataStore
 import com.wlt.adblocker.util.NotificationHelper
 
@@ -14,6 +12,8 @@ class WltApplication : Application() {
         instance = this
         WltDataStore.init(this)
         NotificationHelper.createChannels(this)
+        // Schedule 24h blocklist auto-update
+        BlocklistUpdateWorker.schedule(this)
     }
 
     companion object {
