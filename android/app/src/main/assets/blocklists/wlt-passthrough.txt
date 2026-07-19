@@ -1,10 +1,5 @@
 # WLT Passthrough / Allowlist — Domains NEVER blocked
-# Curated list of banking, payment, government, and critical infrastructure.
-# WLT's "Zero-Trust Passthrough" — community-maintained, signed updates.
-#
-# Format: one domain per line. Suffixes match subdomains.
-
-# === Banking & Financial ===
+# Banking, payment, government, critical infrastructure.
 chase.com
 bankofamerica.com
 wellsfargo.com
@@ -21,7 +16,6 @@ cashapp.com
 hsbc.com
 barclays.com
 santander.com
-mynavybank.com
 usaa.com
 ally.com
 schwab.com
@@ -29,21 +23,14 @@ fidelity.com
 vanguard.com
 etrade.com
 tdameritrade.com
-mint.intuit.com
-
-# === Payment gateways / card processors ===
 visa.com
 mastercard.com
-mastercarddirect.com
-visadps.com
 firstdata.com
 worldpay.com
 adyen.com
 checkout.com
 recurly.com
 zuora.com
-
-# === Government ===
 gov.uk
 usa.gov
 irs.gov
@@ -53,8 +40,6 @@ gov.au
 gov.ca
 europa.eu
 un.org
-
-# === Critical infrastructure (don't risk breaking) ===
 apple.com
 icloud.com
 mzstatic.com
@@ -67,8 +52,8 @@ pypi.org
 googleapis.com
 gstatic.com
 google.com
-googlevideo.com  # Note: YouTube video CDN — blocking breaks video playback
-youtube.com       # Allow domain; ads handled separately if HTTPS layer enabled
+googlevideo.com
+youtube.com
 ytimg.com
 gmail.com
 microsoft.com
@@ -77,20 +62,10 @@ windowsupdate.com
 office365.com
 live.com
 outlook.com
-
-# === Carrier/telecom (often used for SMS 2FA) ===
 att.com
 verizon.com
 t-mobile.com
 vodafone.com
-
-# === DNS-over-HTTPS providers we DON'T want to accidentally break ===
-# (WLT blocks DoH bypass providers separately; these are the official ones
-# used by the OS itself, leave alone)
-dns.google
-cloudflare-dns.com
-
-# === Development / CI ===
 localhost
 127.0.0.1
 ::1

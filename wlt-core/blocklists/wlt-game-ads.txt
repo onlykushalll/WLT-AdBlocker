@@ -1,11 +1,5 @@
-# WLT Game Ads Blocklist — Curated mobile game ad SDK domains
-# This is WLT's unique contribution: a dedicated list for game ad networks
-# that goes beyond generic ad blocklists. Includes SDK telemetry, ad serving,
-# and tracking endpoints for: AdMob, Unity, AppLovin, ironSource, Chartboost,
-# Vungle, Meta Audience Network, AdColony, Mintegral, Fyber, Tapjoy, InMobi.
-#
+# WLT Game Ads Blocklist + DoH Bypass Prevention
 # Format: one domain per line. Wildcards via *.example.com.
-# Last updated: 2026-07
 
 # === Google AdMob / AdSense / DoubleClick ===
 googleads.g.doubleclick.net
@@ -24,7 +18,6 @@ doubleclick.net
 *.doubleclick.net
 *.googlesyndication.com
 *.googleadservices.com
-*.googletagservices.com
 
 # === Unity Ads ===
 unityads.unity3d.com
@@ -33,9 +26,6 @@ config.unityads.unity3d.com
 cdp.cloud.unity3d.com
 perf-events.cloud.unity3d.com
 cdn.unity.com
-api.unityads.unity3d.com
-*.unityads.unity3d.com
-*.cloud.unity3d.com
 
 # === AppLovin ===
 applovin.com
@@ -45,7 +35,6 @@ vid.applovin.com
 d.applovin.com
 pdn.applovin.com
 applovin-thirdparty.com
-*.applovin.com
 
 # === ironSource ===
 ironsrc.com
@@ -53,79 +42,82 @@ api.ironsrc.com
 events.ironsrc.com
 cdn.ironsrc.com
 unity.ironsrc.com
-*.ironsrc.com
 
 # === Chartboost ===
 chartboost.com
 live.chartboost.com
 api.chartboost.com
 charts.chartboost.com
-*.chartboost.com
 
-# === Vungle (Liftoff) ===
+# === Vungle ===
 vungle.com
 api.vungle.com
 events.vungle.com
 cdn.vungle.com
 logger.vungle.com
-*.vungle.com
 
 # === Meta Audience Network ===
 an.facebook.com
 ads.facebook.com
 fb-analytics.com
-*.an.facebook.com
 
 # === AdColony ===
 adcolony.com
 ads.adcolony.com
 androidads.adcolony.com
 cdn.adcolony.com
-*.adcolony.com
 
 # === Mintegral ===
 mintegral.com
 api.mintegral.com
 cdn.mintegral.com
 adsdk.mintegral.com
-*.mintegral.com
 
-# === Fyber / Digital Turbine ===
+# === Fyber ===
 fyber.com
 engine.fyber.com
 api.fyber.com
 cdn.fyber.com
-*.fyber.com
 
 # === Tapjoy ===
 tapjoy.com
 api.tapjoy.com
 connect.tapjoy.com
 ads.tapjoy.com
-*.tapjoy.com
 
 # === InMobi ===
 inmobi.com
 api.inmobi.com
 cdn.inmobi.com
 i.l.inmobi.com
-*.inmobi.com
 
-# === Common mediation/analytics SDKs that leak data ===
+# === Attribution/analytics SDKs ===
 appsflyer.com
 events.appsflyer.com
 api.appsflyer.com
-*.appsflyer.com
 adjust.com
 app.adjust.com
-*.adjust.com
 kochava.com
-*.kochava.com
 branch.io
 api.branch.io
-*.branch.io
 
-# === Crash/telemetry that's often used for ad attribution ===
-# Disabled by default — uncomment if you want maximum privacy:
-# crashlytics.googleapis.com
-# firebase-settings.crashlytics.com
+# === DoH Bypass Prevention ===
+# Apps can hardcode DoH endpoints to bypass DNS filtering.
+# Block these to prevent circumvention of WLT's DNS layer.
+dns.google
+cloudflare-dns.com
+dns.quad9.net
+doh.opendns.com
+dns.adguard.com
+dns.dns-over-https.com
+doh.dns-over-https.com
+doh.pub
+dns.alidns.com
+commonstar.dns-os.dnsstar.com
+doh.xfinity.com
+dnsnext.dnspod.cn
+doh-1.seby.io
+doh-2.seby.io
+doh.dns.sb
+dnsforge.de
+doh.dnsforge.de

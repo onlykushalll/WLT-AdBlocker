@@ -4,32 +4,19 @@
 # domain will be blocked even if it's not in any other list.
 #
 # Sources: AdGuard CNAME list, NextDNS CNAME list, Brave uncloaking list.
-# Format: one domain per line.
-
-# === Known tracker CNAME targets ===
 ea-cdn.com
-d1xt5lwg2po4cm.cloudfront.net
-d2qt5xo4tq2wx6.cloudfront.net
-d3oiq4n5s7sqkm.cloudfront.net
-data-d8e9b5d8a9.cnamee.org
 tags.tiqcdn.com
 analytics.edgekey.net
 e9fd8b8d8a.akamaized.net
 cdn.cxense.com
 metrics.beyondwords.io
-d2s6j0ghqj9ucm.cloudfront.net
-e-32168.admantisk.com
-d1sq3cqt4mu0m3.cloudfront.net
-analytics.localytics.com
-d1ros97qkrwjn5.cloudfront.net
-d2in7p5stv4dci.cloudfront.net
-cdn.appdynamics.com
 data.cnn.io
-d2gbomh7mwegfg.cloudfront.net
 analytics.sitewit.com
 a0153117.akstat.org
+cdn.adjust.com
+d1sq3cqt4mu0m3.cloudfront.net
+d2in7p5stv4dci.cloudfront.net
+d1xt5lwg2po4cm.cloudfront.net
 d2nuvwlgc133y8.cloudfront.net
 d1r75t3pc1sqeh.cloudfront.net
 d2t77q05qgn1bn.cloudfront.net
-cdn.adjust.com
-d1sqw4p2t6d3lk.cloudfront.net

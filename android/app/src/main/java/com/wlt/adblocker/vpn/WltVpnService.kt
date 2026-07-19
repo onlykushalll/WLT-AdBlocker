@@ -29,9 +29,12 @@ import java.nio.ByteBuffer
 
 /**
  * WLT VPN Service — the heart of the Android app.
+ *
+ * Uses the Go core engine (via GoBlockEngine/wlt.aar) for DNS filtering.
+ * Falls back to KotlinBlockEngine if the Go engine fails to load.
+ *
  * Establishes a TUN interface, intercepts all DNS traffic, routes each
- * query through the WLT block engine. Non-DNS traffic passes through.
- * Applies per-app firewall bypass via addDisallowedApplication.
+ * query through the block engine. Applies per-app firewall bypass.
  */
 class WltVpnService : VpnService() {
 
@@ -40,8 +43,10 @@ class WltVpnService : VpnService() {
     private var packetLoopJob: Job? = null
     private var statsJob: Job? = null
     @Volatile private var isRunning = false
-    @Volatile var pausedUntil: Long = 0L // epoch millis; 0 = not paused
+    @Volatile var pausedUntil: Long = 0L
 
+    // Primary: Go engine (trie/bloom/forensics). Fallback: Kotlin engine.
+    private val goEngine = GoBlockEngine()
     private val kotlinFallbackEngine = KotlinBlockEngine()
     private val dnsResolver = DnsResolver("cloudflare")
 
@@ -52,13 +57,11 @@ class WltVpnService : VpnService() {
                 val minutes = intent.getIntExtra(EXTRA_PAUSE_MINUTES, 5)
                 pausedUntil = System.currentTimeMillis() + minutes * 60_000L
                 updateNotification()
-                Log.i(TAG, "Paused for $minutes minutes until $pausedUntil")
                 return START_STICKY
             }
             ACTION_RESUME -> {
                 pausedUntil = 0L
                 updateNotification()
-                Log.i(TAG, "Resumed protection")
                 return START_STICKY
             }
         }
@@ -95,30 +98,27 @@ class WltVpnService : VpnService() {
                 .setMtu(1500)
                 .setBlocking(true)
 
-            // Apply per-app firewall: bypass VPN for selected apps
+            // Apply per-app firewall bypass
             val bypassApps = RuleStore.getBypassApps()
             for (pkg in bypassApps) {
-                try {
-                    builder.addDisallowedApplication(pkg)
-                    Log.i(TAG, "App bypass: $pkg")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Cannot bypass $pkg: ${e.message}")
-                }
+                try { builder.addDisallowedApplication(pkg) } catch (e: Exception) { }
             }
 
             vpnInterface = builder.establish()
-            if (vpnInterface == null) {
-                Log.e(TAG, "Failed to establish VPN")
-                stopSelf()
-                return
-            }
+            if (vpnInterface == null) { stopSelf(); return }
             isRunning = true
-            Log.i(TAG, "VPN established, starting packet loop")
+            Log.i(TAG, "VPN established, Go engine available=${goEngine.isAvailable()}")
 
-            kotlinFallbackEngine.loadBundledLists(this)
+            // Load blocklists into whichever engine is active
+            if (goEngine.isAvailable()) {
+                goEngine.loadBundledLists(this)
+                Log.i(TAG, "Go engine loaded: ${goEngine.blocklistSize()} block domains, ${goEngine.allowlistSize()} allow domains")
+            } else {
+                kotlinFallbackEngine.loadBundledLists(this)
+                Log.i(TAG, "Using Kotlin fallback engine: ${kotlinFallbackEngine.blocklistSize()} block domains")
+            }
 
             packetLoopJob = scope.launch { packetLoop(vpnInterface!!) }
-            // Stats history recorder — snapshots every 60s for the dashboard chart
             statsJob = scope.launch { statsRecorder() }
         } catch (e: Exception) {
             Log.e(TAG, "startVpn failed", e)
@@ -129,7 +129,7 @@ class WltVpnService : VpnService() {
     private suspend fun statsRecorder() {
         while (isRunning) {
             StatsHistory.record(BlockStats.totalBlocked(), BlockStats.totalAllowed())
-            kotlinx.coroutines.delay(60_000) // 1 minute
+            kotlinx.coroutines.delay(60_000)
         }
     }
 
@@ -185,21 +185,34 @@ class WltVpnService : VpnService() {
             return
         }
 
-        // If paused, forward everything without blocking
+        // If paused, forward everything
         if (isPaused()) {
             forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output)
             return
         }
 
-        val shouldBlock = kotlinFallbackEngine.shouldBlock(domain)
-        val sdk = kotlinFallbackEngine.detectSdk(domain)
+        // Use Go engine if available, else Kotlin fallback
+        val shouldBlock: Boolean
+        val sdk: String?
+        val reason: String
+
+        if (goEngine.isAvailable()) {
+            val result = goEngine.checkDnsPacket(dnsPayload)
+            shouldBlock = result?.block ?: kotlinFallbackEngine.shouldBlock(domain)
+            reason = result?.reason ?: kotlinFallbackEngine.lastBlockReason
+        } else {
+            shouldBlock = kotlinFallbackEngine.shouldBlock(domain)
+            reason = kotlinFallbackEngine.lastBlockReason
+        }
+        sdk = kotlinFallbackEngine.detectSdk(domain)
+
         BlockStats.onQuery(domain, shouldBlock)
         QueryLog.add(
             QueryLogEntry(
                 domain = domain,
                 timestamp = System.currentTimeMillis(),
                 blocked = shouldBlock,
-                reason = if (shouldBlock) kotlinFallbackEngine.lastBlockReason else "allowed",
+                reason = reason,
                 sdk = sdk
             )
         )
@@ -208,7 +221,7 @@ class WltVpnService : VpnService() {
             val dnsResp = DnsPacketParser.buildNxDomain(dnsPayload, dnsLength)
             val ipResp = buildIpUdpResponse(packet, ipHeaderLen, dnsResp)
             if (ipResp.isNotEmpty()) {
-                try { output.write(ipResp) } catch (e: Exception) { Log.w(TAG, "write blocked resp failed", e) }
+                try { output.write(ipResp) } catch (e: Exception) { }
             }
         } else {
             forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output)
@@ -225,10 +238,20 @@ class WltVpnService : VpnService() {
             protect(socket)
             val respBytes = dnsResolver.resolve(dnsPayload, socket)
             socket.close()
-            if (respBytes == null || respBytes.size < 12) {
-                Log.w(TAG, "upstream DNS resolution failed")
-                return
+            if (respBytes == null || respBytes.size < 12) return
+
+            // Check CNAME chain for cloaking (if Go engine available)
+            if (goEngine.isAvailable()) {
+                val cnames = DnsPacketParser.extractCnameTargets(respBytes, respBytes.size)
+                if (cnames.isNotEmpty() && kotlinFallbackEngine.checkCnameChain(cnames)) {
+                    // CNAME cloak detected — block the response
+                    val dnsResp = DnsPacketParser.buildNxDomain(dnsPayload, dnsPayload.size)
+                    val ipResp = buildIpUdpResponse(packet, ipHeaderLen, dnsResp)
+                    if (ipResp.isNotEmpty()) output.write(ipResp)
+                    return
+                }
             }
+
             val ipResp = buildIpUdpResponse(packet, ipHeaderLen, respBytes)
             if (ipResp.isNotEmpty()) output.write(ipResp)
         } catch (e: Exception) {
@@ -241,15 +264,13 @@ class WltVpnService : VpnService() {
         val totalLen = ipHeaderLen + 8 + dnsPayload.size
         if (totalLen > 65535) return ByteArray(0)
         val resp = ByteArray(totalLen)
-
         System.arraycopy(originalPacket, 0, resp, 0, ipHeaderLen)
         for (i in 0 until 4) {
             val tmp = resp[12 + i]; resp[12 + i] = resp[16 + i]; resp[16 + i] = tmp
         }
         resp[2] = ((totalLen shr 8) and 0xFF).toByte()
         resp[3] = (totalLen and 0xFF).toByte()
-        resp[6] = 0x40.toByte(); resp[7] = 0
-        resp[8] = 64; resp[9] = 17
+        resp[6] = 0x40.toByte(); resp[7] = 0; resp[8] = 64; resp[9] = 17
         resp[10] = 0; resp[11] = 0
         var checksum = 0
         var i = 0
@@ -261,7 +282,6 @@ class WltVpnService : VpnService() {
         checksum = checksum.inv() and 0xFFFF
         resp[10] = ((checksum shr 8) and 0xFF).toByte()
         resp[11] = (checksum and 0xFF).toByte()
-
         val srcPort = ((originalPacket[ipHeaderLen + 2].toInt() and 0xFF) shl 8) or (originalPacket[ipHeaderLen + 3].toInt() and 0xFF)
         val dstPort = ((originalPacket[ipHeaderLen].toInt() and 0xFF) shl 8) or (originalPacket[ipHeaderLen + 1].toInt() and 0xFF)
         resp[ipHeaderLen] = ((srcPort shr 8) and 0xFF).toByte()
@@ -278,10 +298,7 @@ class WltVpnService : VpnService() {
 
     private fun buildNotification(text: String): Notification {
         val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_VPN)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentTitle(getString(R.string.app_name))
@@ -293,22 +310,16 @@ class WltVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.i(TAG, "onDestroy — stopping VPN")
         isRunning = false
-        packetLoopJob?.cancel()
-        statsJob?.cancel()
-        vpnInterface?.close()
-        vpnInterface = null
+        packetLoopJob?.cancel(); statsJob?.cancel()
+        vpnInterface?.close(); vpnInterface = null
         scope.cancel()
     }
 
     override fun onRevoke() {
-        Log.i(TAG, "onRevoke — VPN permission revoked")
         isRunning = false
-        packetLoopJob?.cancel()
-        statsJob?.cancel()
-        vpnInterface?.close()
-        vpnInterface = null
+        packetLoopJob?.cancel(); statsJob?.cancel()
+        vpnInterface?.close(); vpnInterface = null
         stopSelf()
         scope.launch { WltDataStore.setVpnEnabled(false) }
     }
