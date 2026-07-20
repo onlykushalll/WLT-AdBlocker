@@ -7,7 +7,6 @@ func TestInsertAndContains(t *testing.T) {
 	tr.Insert("example.com")
 	tr.Insert("ads.example.com")
 	tr.Insert("*.tracker.com")
-
 	tests := []struct {
 		domain string
 		want   bool
@@ -21,7 +20,7 @@ func TestInsertAndContains(t *testing.T) {
 		{"nottracker.com", false},
 	}
 	for _, tc := range tests {
-		got, _ := tr.Contains(tc.domain)
+		got := tr.Contains(tc.domain)
 		if got != tc.want {
 			t.Errorf("Contains(%q) = %v, want %v", tc.domain, got, tc.want)
 		}
@@ -33,6 +32,6 @@ func TestEdgeCases(t *testing.T) {
 	tr.Insert("")
 	tr.Insert(".")
 	if tr.Size() != 0 { t.Errorf("empty inserts should not count, size=%d", tr.Size()) }
-	got, _ := tr.Contains("anything.com")
+	got := tr.Contains("anything.com")
 	if got { t.Error("empty trie should not match") }
 }

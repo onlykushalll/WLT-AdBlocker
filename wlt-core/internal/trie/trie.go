@@ -24,6 +24,8 @@ func (t *Trie) Size() int { t.mu.RLock(); defer t.mu.RUnlock(); return t.size }
 func (t *Trie) Insert(domain string) {
 	d := normalize(domain)
 	if d == "" { return }
+	wildcard := false
+	if strings.HasPrefix(d, "*.") { wildcard = true; d = d[2:] }
 	labels := splitLabels(d)
 	if len(labels) == 0 { return }
 	t.mu.Lock(); defer t.mu.Unlock()
@@ -33,7 +35,7 @@ func (t *Trie) Insert(domain string) {
 		if !ok { child = newNode(); cur.children[labels[i]] = child }
 		cur = child
 	}
-	cur.terminal = true
+	if wildcard { cur.matchChildren = true } else { cur.terminal = true }
 	t.size++
 }
 
@@ -45,11 +47,12 @@ func (t *Trie) Contains(domain string) bool {
 	cur := t.root
 	for i := len(labels) - 1; i >= 0; i-- {
 		if cur.terminal { return true }
+		if cur.matchChildren { return true }
 		child, ok := cur.children[labels[i]]
 		if !ok { return false }
 		cur = child
 	}
-	return cur.terminal
+	return cur.terminal || cur.matchChildren
 }
 
 func normalize(d string) string { return strings.ToLower(strings.Trim(strings.TrimSpace(d), ".")) }
