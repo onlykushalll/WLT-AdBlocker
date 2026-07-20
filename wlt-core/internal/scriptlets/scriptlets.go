@@ -1,152 +1,76 @@
-// Package scriptlets implements a scriptlet injection engine for Phase 3
-// (HTTPS filtering). Scriptlets are JavaScript snippets injected into
-// web pages to neutralize ads, anti-adblock, and tracking.
-//
-// Inspired by uBlock Origin's scriptlet library (80+ scriptlets).
-// This Go implementation generates the JS that gets injected by the
-// HTTPS proxy when it intercepts responses from matching domains.
 package scriptlets
 
 import (
-	"strings"
-	"sync"
+        "strings"
+        "sync"
 )
 
-// Scriptlet is a named JS snippet that gets injected into pages.
 type Scriptlet struct {
-	Name        string
-	Description string
-	Domains     []string // domains this scriptlet applies to
-	JS          string   // the JavaScript to inject
+        Name string
+        Description string
+        Domains []string
+        JS string
 }
 
-// Engine holds all registered scriptlets and provides domain-based lookup.
 type Engine struct {
-	mu          sync.RWMutex
-	scriptlets  []Scriptlet
-	domainIndex map[string][]int // domain -> scriptlet indices
+        mu sync.RWMutex
+        scriptlets []Scriptlet
+        domainIndex map[string][]int
 }
 
-// New creates an Engine preloaded with WLT's scriptlet library.
 func New() *Engine {
-	e := &Engine{
-		domainIndex: make(map[string][]int),
-	}
-	e.loadDefaults()
-	return e
+        e := &Engine{domainIndex: make(map[string][]int)}
+        e.scriptlets = []Scriptlet{
+                {Name: "adsbygoogle", Description: "Neutralize AdSense", Domains: []string{"googlesyndication.com"},
+                        JS: "self.adsbygoogle={loaded:true,push:function(){}};"},
+                {Name: "doubleclick", Description: "DoubleClick instream", Domains: []string{"doubleclick.net"},
+                        JS: "window.google_ad_status=1;"},
+                {Name: "fetch-blocker", Description: "Block fetch to ad endpoints", Domains: []string{},
+                        JS: "const _f=window.fetch;window.fetch=function(u,o){if(typeof u==='string'&&/doubleclick|googlesyndication|adservice|adclick|adsystem/.test(u))return new Promise(function(){});return _f.apply(this,arguments)};"},
+                {Name: "xhr-blocker", Description: "Block XMLHttpRequest to ad endpoints", Domains: []string{},
+                        JS: "const _o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(/doubleclick|googlesyndication|adservice|adclick/.test(u))throw new Error('WLT');return _o.apply(this,arguments)};"},
+                {Name: "noeval", Description: "Block eval() used by ad scripts", Domains: []string{},
+                        JS: "window.eval=function(){return undefined;};"},
+                {Name: "abort-current-script", Description: "Abort ad scripts by trapping property access (uBlock technique)", Domains: []string{},
+                        JS: "Object.defineProperty(document,'Ads',{get:function(){throw new ReferenceError('WLT');}});"},
+                {Name: "anti-adblock", Description: "Fake adblock detection status", Domains: []string{},
+                        JS: "Object.defineProperty(window,'adblock',{value:false,writable:false});Object.defineProperty(window,'adblockDetected',{value:false,writable:false});Object.defineProperty(window,'canRunAds',{value:true,writable:false});"},
+                {Name: "googletag", Description: "Neutralize Google Ad Manager tags", Domains: []string{"googletagservices.com","doubleclick.net"},
+                        JS: "window.googletag={cmd:[],defineSlot:function(){return{setTargeting:function(){return this;},addService:function(){return this;}};},enableServices:function(){},display:function(){},pubads:function(){return{refresh:function(){},setTargeting:function(){return this;}};}};"},
+                {Name: "google-analytics", Description: "Block Google Analytics", Domains: []string{"google-analytics.com"},
+                        JS: "window.ga=function(){};window.gtag=function(){};window.dataLayer={push:function(){}};"},
+                {Name: "facebook-pixel", Description: "Block Facebook Pixel tracking", Domains: []string{"connect.facebook.net"},
+                        JS: "window.fbq=function(){};window._fbq=function(){};"},
+                {Name: "twitter-ads", Description: "Block Twitter ads", Domains: []string{"ads-twitter.com","platform.twitter.com"},
+                        JS: "window.twttr={ads:{}};"},
+                {Name: "amazon-ads", Description: "Block Amazon ads", Domains: []string{"amazon-adsystem.com"},
+                        JS: "window.amznads=function(){};"},
+        }
+        for i, s := range e.scriptlets {
+                for _, d := range s.Domains { e.domainIndex[d] = append(e.domainIndex[d], i) }
+        }
+        return e
 }
 
-// GetScriptletsForDomain returns all scriptlets that should be injected
-// for the given domain.
 func (e *Engine) GetScriptletsForDomain(domain string) []Scriptlet {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	d := strings.ToLower(strings.TrimSpace(domain))
-	var result []Scriptlet
-	// Check exact domain and all parent suffixes
-	labels := strings.Split(d, ".")
-	for i := 0; i < len(labels)-1; i++ {
-		suffix := strings.Join(labels[i:], ".")
-		if indices, ok := e.domainIndex[suffix]; ok {
-			for _, idx := range indices {
-				result = append(result, e.scriptlets[idx])
-			}
-		}
-	}
-	return result
+        e.mu.RLock(); defer e.mu.RUnlock()
+        d := strings.ToLower(strings.TrimSpace(domain))
+        var result []Scriptlet
+        labels := strings.Split(d, ".")
+        for i := 0; i < len(labels)-1; i++ {
+                if indices, ok := e.domainIndex[strings.Join(labels[i:], ".")]; ok {
+                        for _, idx := range indices { result = append(result, e.scriptlets[idx]) }
+                }
+        }
+        return result
 }
 
-// GenerateInjectionScript combines all matching scriptlets into one JS block.
 func (e *Engine) GenerateInjectionScript(domain string) string {
-	scriptlets := e.GetScriptletsForDomain(domain)
-	if len(scriptlets) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("<script>\n")
-	sb.WriteString("// WLT-Adblocker scriptlet injection\n")
-	sb.WriteString("(function() {\n")
-	for _, s := range scriptlets {
-		sb.WriteString("// " + s.Name + ": " + s.Description + "\n")
-		sb.WriteString(s.JS)
-		sb.WriteString("\n")
-	}
-	sb.WriteString("})();\n")
-	sb.WriteString("</script>\n")
-	return sb.String()
-}
-
-func (e *Engine) loadDefaults() {
-	e.scriptlets = []Scriptlet{
-		{
-			Name:        "googlesyndication-adsbygoogle",
-			Description: "Neutralize AdSense adsbygoogle pushes",
-			Domains:     []string{"googlesyndication.com", "googleads.g.doubleclick.net"},
-			JS: `self.adsbygoogle = self.adsbygoogle || {
-				loaded: true,
-				push: function() { /* no-op */ }
-			};`,
-		},
-		{
-			Name:        "doubleclick-instream-ad-status",
-			Description: "Tell DoubleClick instream ads are already shown",
-			Domains:     []string{"doubleclick.net", "ad.doubleclick.net"},
-			JS:          `window.google_ad_status = 1;`,
-		},
-		{
-			Name:        "abort-on-property-read",
-			Description: "Prevent ad scripts from reading certain properties",
-			Domains:     []string{},
-			JS: `// Generic: can be parameterized per-site
-				// Example: aborts when document.ads is accessed
-				Object.defineProperty(document, 'ads', { get: function(){ throw new ReferenceError(); } });`,
-		},
-		{
-			Name:        "prevent-fetch-ads",
-			Description: "Block fetch() calls to known ad endpoints",
-			Domains:     []string{},
-			JS: `const originalFetch = window.fetch;
-				window.fetch = function(url, options) {
-					if (typeof url === 'string' && /doubleclick|googlesyndication|adservice/.test(url)) {
-						return new Promise(function(){ /* never resolves — ad blocked */ });
-					}
-					return originalFetch.apply(this, arguments);
-				};`,
-		},
-		{
-			Name:        "no-xhr-if",
-			Description: "Block XMLHttpRequest to ad endpoints",
-			Domains:     []string{},
-			JS: `const originalOpen = XMLHttpRequest.prototype.open;
-				XMLHttpRequest.prototype.open = function(method, url) {
-					if (/doubleclick|googlesyndication|adservice/.test(url)) {
-						throw new Error('Blocked by WLT');
-					}
-					return originalOpen.apply(this, arguments);
-				};`,
-		},
-		{
-			Name:        "set-constant-adblock-detected",
-			Description: "Fake adblock detection status (anti-anti-adblock)",
-			Domains:     []string{},
-			JS: `// Sites check for adblock — fake the detection
-				Object.defineProperty(window, 'adblock', { value: false, writable: false });
-				Object.defineProperty(window, 'adblockDetected', { value: false, writable: false });`,
-		},
-	}
-	// Build domain index
-	for i, s := range e.scriptlets {
-		for _, d := range s.Domains {
-			e.domainIndex[d] = append(e.domainIndex[d], i)
-		}
-	}
-}
-
-// AllScriptlets returns the full scriptlet library (for UI/forensics).
-func (e *Engine) AllScriptlets() []Scriptlet {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	out := make([]Scriptlet, len(e.scriptlets))
-	copy(out, e.scriptlets)
-	return out
+        scriptlets := e.GetScriptletsForDomain(domain)
+        if len(scriptlets) == 0 { return "" }
+        var sb strings.Builder
+        sb.WriteString("<script>\n(function(){\n")
+        for _, s := range scriptlets { sb.WriteString(s.JS + "\n") }
+        sb.WriteString("})();\n</script>\n")
+        return sb.String()
 }

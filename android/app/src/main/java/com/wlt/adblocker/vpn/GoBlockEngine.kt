@@ -3,8 +3,7 @@ package com.wlt.adblocker.vpn
 import android.content.Context
 import android.util.Log
 import com.wlt.adblocker.data.RuleStore
-import mobile.Engine
-import mobile.Mobile
+import mobile.Engine as GoEngine
 
 /**
  * GoBlockEngine — wraps the Go core (wlt.aar via gomobile).
@@ -12,8 +11,8 @@ import mobile.Mobile
  */
 class GoBlockEngine {
 
-    private val goEngine: Engine? = try {
-        Mobile.newEngine()
+    private val goEngine: GoEngine? = try {
+        GoEngine()
     } catch (e: Exception) {
         Log.e(TAG, "Failed to create Go engine: ${e.message}", e)
         null
@@ -24,23 +23,18 @@ class GoBlockEngine {
     @Volatile var lastBlockReason: String = ""
 
     fun shouldBlock(domain: String): Boolean {
-        // 1. Custom rules first
         val customDecision = RuleStore.checkCustomRule(domain)
         if (customDecision != null) {
             if (customDecision) { totalBlocked++; lastBlockReason = "user block rule" }
             else { totalAllowed++; lastBlockReason = "user allow rule" }
             return customDecision
         }
-
-        // 2. Go engine
         if (goEngine != null) {
             val blocked = goEngine.shouldBlock(domain)
             if (blocked) { totalBlocked++; lastBlockReason = "Go engine block" }
             else { totalAllowed++; lastBlockReason = "allowed" }
             return blocked
         }
-
-        // 3. Fallback
         totalAllowed++; lastBlockReason = "Go engine unavailable"
         return false
     }

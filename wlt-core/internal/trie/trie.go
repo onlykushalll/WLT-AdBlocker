@@ -24,49 +24,32 @@ func (t *Trie) Size() int { t.mu.RLock(); defer t.mu.RUnlock(); return t.size }
 func (t *Trie) Insert(domain string) {
 	d := normalize(domain)
 	if d == "" { return }
-	wildcard := false
-	if strings.HasPrefix(d, "*.") { wildcard = true; d = d[2:] }
 	labels := splitLabels(d)
 	if len(labels) == 0 { return }
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.Lock(); defer t.mu.Unlock()
 	cur := t.root
 	for i := len(labels) - 1; i >= 0; i-- {
-		label := labels[i]
-		child, ok := cur.children[label]
-		if !ok { child = newNode(); cur.children[label] = child }
+		child, ok := cur.children[labels[i]]
+		if !ok { child = newNode(); cur.children[labels[i]] = child }
 		cur = child
 	}
-	if wildcard { cur.matchChildren = true } else { cur.terminal = true }
+	cur.terminal = true
 	t.size++
 }
 
-type MatchKind int
-const ( MatchNone MatchKind = iota; MatchExact; MatchWildcard )
-
-func (m MatchKind) String() string {
-	switch m { case MatchExact: return "exact"; case MatchWildcard: return "wildcard" }
-	return "none"
-}
-
-func (t *Trie) Contains(domain string) (bool, MatchKind) {
+func (t *Trie) Contains(domain string) bool {
 	d := normalize(domain)
-	if d == "" { return false, MatchNone }
+	if d == "" { return false }
 	labels := splitLabels(d)
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.RLock(); defer t.mu.RUnlock()
 	cur := t.root
 	for i := len(labels) - 1; i >= 0; i-- {
-		if cur.terminal { return true, MatchExact }
-		if cur.matchChildren { return true, MatchWildcard }
-		label := labels[i]
-		child, ok := cur.children[label]
-		if !ok { return false, MatchNone }
+		if cur.terminal { return true }
+		child, ok := cur.children[labels[i]]
+		if !ok { return false }
 		cur = child
 	}
-	if cur.terminal { return true, MatchExact }
-	if cur.matchChildren { return true, MatchWildcard }
-	return false, MatchNone
+	return cur.terminal
 }
 
 func normalize(d string) string { return strings.ToLower(strings.Trim(strings.TrimSpace(d), ".")) }

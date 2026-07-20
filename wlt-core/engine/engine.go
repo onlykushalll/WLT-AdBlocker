@@ -8,16 +8,6 @@ import (
 	"wlt-core/internal/trie"
 )
 
-type BlockResponse int
-const ( ResponseNXDomain BlockResponse = iota; ResponseNullIP; ResponseRefused )
-
-type Decision struct {
-	Block  bool
-	Reason string
-	Layer  int
-	SDK    gamesdk.SDK
-}
-
 type Engine struct {
 	trie      *trie.Trie
 	allowlist *trie.Trie
@@ -36,41 +26,24 @@ type statsCounters struct {
 func New() *Engine {
 	return &Engine{
 		trie: trie.New(), allowlist: trie.New(), denylist: trie.New(),
-		gamesdk: gamesdk.New(),
-		stats: &statsCounters{},
+		gamesdk: gamesdk.New(), stats: &statsCounters{},
 	}
 }
 
-func (e *Engine) AddBlockDomain(domain string) {
-	d := normalize(domain)
-	if d == "" { return }
-	e.trie.Insert(d)
-}
-
+func (e *Engine) AddBlockDomain(domain string) { e.trie.Insert(normalize(domain)) }
 func (e *Engine) AddAllowDomain(domain string) { e.allowlist.Insert(normalize(domain)) }
 func (e *Engine) AddDenyDomain(domain string) { e.denylist.Insert(normalize(domain)) }
 
 func (e *Engine) ShouldBlock(domain string) bool {
 	d := normalize(domain)
 	if d == "" { return false }
-
-	// Denylist (user-forced) — overrides everything
-	if ok, _ := e.denylist.Contains(d); ok { atomic.AddInt64(&e.stats.TotalBlocked, 1); return true }
-
-	// Allowlist
-	if ok, _ := e.allowlist.Contains(d); ok { atomic.AddInt64(&e.stats.TotalAllowed, 1); return false }
-
-	// Trie
-	if ok, _ := e.trie.Contains(d); ok { atomic.AddInt64(&e.stats.TotalBlocked, 1); return true }
-
-	// Game SDK
+	if e.denylist.Contains(d) { atomic.AddInt64(&e.stats.TotalBlocked, 1); return true }
+	if e.allowlist.Contains(d) { atomic.AddInt64(&e.stats.TotalAllowed, 1); return false }
+	if e.trie.Contains(d) { atomic.AddInt64(&e.stats.TotalBlocked, 1); return true }
 	if sdk := e.gamesdk.DetectByDomain(d); sdk != gamesdk.SDKUnknown {
-		atomic.AddInt64(&e.stats.TotalBlocked, 1)
-		return true
+		atomic.AddInt64(&e.stats.TotalBlocked, 1); return true
 	}
-
-	atomic.AddInt64(&e.stats.TotalAllowed, 1)
-	return false
+	atomic.AddInt64(&e.stats.TotalAllowed, 1); return false
 }
 
 func (e *Engine) BlocklistSize() int { return e.trie.Size() }
