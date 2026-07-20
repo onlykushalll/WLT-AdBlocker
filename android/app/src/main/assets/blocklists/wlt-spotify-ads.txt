@@ -1,0 +1,27 @@
+# WLT Spotify Ad Domains Blocklist
+# Blocks Spotify ad/tracking endpoints at DNS level.
+# Note: Same-domain audio ads need Phase 3 HTTPS MITM + scriptlets.
+
+# Spotify Ad Serving
+ads-he.spotify.com
+ads.spotify.com
+adcampaign.spotify.com
+ads-fa.spotify.com
+ads-sp.spotify.com
+
+# Spotify Tracking/Analytics
+log.spotify.com
+spotifylogger.com
+adeventtracker.spotify.com
+ads-tracker.spotify.com
+
+# Spotify Telemetry
+pushka.spotify.com
+countess.spotify.com
+ef1.spotify.com
+ef2.spotify.com
+ef3.spotify.com
+ef4.spotify.com
+crashdump.spotify.com
+ue1.spotify.com
+ue2.spotify.com
