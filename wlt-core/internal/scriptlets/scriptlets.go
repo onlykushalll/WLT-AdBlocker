@@ -46,13 +46,17 @@ func New() *Engine {
 		{Name: "noeval", Description: "Block eval()", Domains: []string{},
 			JS: "window.eval=function(){return undefined;};"},
 
-		// === ANTI-ADBLOCK (3) ===
+		// === ANTI-ADBLOCK (5) — uBlock techniques ===
 		{Name: "abort-current-script", Description: "Abort ad scripts (uBlock)", Domains: []string{},
 			JS: "Object.defineProperty(document,'Ads',{get:function(){throw new ReferenceError('WLT');}});"},
 		{Name: "anti-adblock", Description: "Fake adblock detection", Domains: []string{},
 			JS: "Object.defineProperty(window,'adblock',{value:false,writable:false});Object.defineProperty(window,'adblockDetected',{value:false,writable:false});Object.defineProperty(window,'canRunAds',{value:true,writable:false});Object.defineProperty(window,'isAdBlockActive',{value:false,writable:false});"},
 		{Name: "overlay-buster", Description: "Remove anti-adblock overlays", Domains: []string{},
 			JS: "var obs=new MutationObserver(function(muts){for(var m of muts){for(var n of m.addedNodes){if(n instanceof HTMLElement){var s=n.style;if(s&&(s.position==='fixed'||s.position==='absolute')&&s.zIndex>999&&(n.innerHTML.match(/adblock|ad blocker|disable/i))){n.remove();}}}}});obs.observe(document.body,{childList:true,subtree:true});"},
+		{Name: "abort-on-property-read", Description: "Abort when ad script reads a property (uBlock)", Domains: []string{},
+			JS: "var _aopr=function(chain){var parts=chain.split('.');var obj=window;for(var i=0;i<parts.length-1;i++){if(!obj[parts[i]])return;obj=obj[parts[i]];}var prop=parts[parts.length-1];Object.defineProperty(obj,prop,{get:function(){throw new ReferenceError('WLT blocked: '+chain);},set:function(){}});};_aopr('document.ads');_aopr('window.adblock');"},
+		{Name: "abort-on-property-write", Description: "Abort when ad script writes a property (uBlock)", Domains: []string{},
+			JS: "var _aopw=function(chain){var parts=chain.split('.');var obj=window;for(var i=0;i<parts.length-1;i++){if(!obj[parts[i]])return;obj=obj[parts[i]];}var prop=parts[parts.length-1];Object.defineProperty(obj,prop,{set:function(){throw new ReferenceError('WLT blocked: '+chain);}});};"},
 
 		// === POPUP BLOCKING (2) ===
 		{Name: "prevent-window-open", Description: "Block popup windows", Domains: []string{},
@@ -60,17 +64,21 @@ func New() *Engine {
 		{Name: "close-window", Description: "Auto-close ad popups", Domains: []string{},
 			JS: "if(window.opener&&window.name&&window.name.match(/ad|popup/i)){window.close();}"},
 
-		// === DOM MANIPULATION (2) ===
+		// === DOM MANIPULATION (4) ===
 		{Name: "remove-class", Description: "Remove ad CSS classes", Domains: []string{},
 			JS: "var adCl=['ad','ads','advert','advertisement','ad-banner','ad-container','sponsor','sponsored','promo'];adCl.forEach(function(c){document.querySelectorAll('.'+c).forEach(function(el){el.style.display='none';});});"},
 		{Name: "prevent-refresh", Description: "Block meta refresh redirects", Domains: []string{},
 			JS: "document.querySelectorAll('meta[http-equiv=refresh]').forEach(function(m){m.remove();});"},
+		{Name: "remove-node-text", Description: "Remove text from ad DOM nodes (uBlock)", Domains: []string{},
+			JS: "var _rnt=function(tag,needle){var re=new RegExp(needle,'i');document.querySelectorAll(tag).forEach(function(el){if(re.test(el.textContent)){el.textContent='';}});};_rnt('script','adsbygoogle');_rnt('script','doubleclick');"},
+		{Name: "replace-node-text", Description: "Replace text in DOM nodes (uBlock)", Domains: []string{},
+			JS: "var _rntext=function(tag,from,to){document.querySelectorAll(tag).forEach(function(el){el.textContent=el.textContent.replace(new RegExp(from,'g'),to);});};"},
 
 		// === TIMER MANIPULATION (2) ===
 		{Name: "adjust-setInterval", Description: "Slow ad rotation timers", Domains: []string{},
 			JS: "var _si=window.setInterval;window.setInterval=function(fn,d){return d<5000&&d>0?_si(fn,d*10):_si(fn,d);};"},
 		{Name: "adjust-setTimeout", Description: "Slow ad display timers", Domains: []string{},
-			JS: "var _st=window.setTimeout;window.setTimeout=function(fn,d){return d<3000&&d>0?_st(fn,d*10):_st(fn,d);};"},
+			JS: "var _st=window.setTimeout;window.setTimeout=function(fn,d){return d<3000&&d>0?_st(fn,d*10):_st(fn,d)};"},
 
 		// === PRIVACY (4) ===
 		{Name: "prevent-canvas", Description: "Block canvas fingerprinting", Domains: []string{},
@@ -92,157 +100,45 @@ func New() *Engine {
 		{Name: "alert-buster", Description: "Block alert() from ad scripts", Domains: []string{},
 			JS: "window.alert=function(){};window.confirm=function(){return true;};window.prompt=function(){return '';};"},
 
-		// === YOUTUBE SPECIFIC (5) — Phase 3 HTTPS MITM ===
-		{Name: "yt-player-intercept", Description: "YouTube: intercept player response, remove ad placements",
+		// === YOUTUBE (5) ===
+		{Name: "yt-player-intercept", Description: "YouTube: remove ad placements from player response",
 			Domains: []string{"youtube.com", "www.youtube.com", "m.youtube.com"},
-			JS: `var _defineProperty=Object.defineProperty;
-			try{
-				var origResponse=window.ytInitialPlayerResponse;
-				if(origResponse){
-					if(origResponse.adPlacements)origResponse.adPlacements=[];
-					if(origResponse.adSlots)origResponse.adSlots=[];
-					if(origResponse.playerAds)origResponse.playerAds=[];
-					if(origResponse.auxiliaryUi)origResponse.auxiliaryUi={messageRenderers:{}};
-				}
-				_defineProperty(window,'ytInitialPlayerResponse',{value:origResponse,writable:false,configurable:false});
-			}catch(e){}
-			// Also intercept ytInitialData for home page ads
-			try{
-				var origData=window.ytInitialData;
-				if(origData){
-					var str=JSON.stringify(origData);
-					str=str.replace(/"adSlotsRegex"[^}]+}/g,'{}');
-					str=str.replace(/"adPlacements"[^]]+]/g,'"adPlacements":[]');
-					window.ytInitialData=JSON.parse(str);
-				}
-			}catch(e){}`},
+			JS: "try{var r=window.ytInitialPlayerResponse;if(r){r.adPlacements=[];r.adSlots=[];r.playerAds=[];}Object.defineProperty(window,'ytInitialPlayerResponse',{value:r,writable:false});}catch(e){}try{var d=window.ytInitialData;if(d){var s=JSON.stringify(d);s=s.replace(/\"adPlacements\"[^]]+]/g,'\"adPlacements\":[]');window.ytInitialData=JSON.parse(s);}}catch(e){}"},
 		{Name: "yt-speed-up-ads", Description: "YouTube: speed up ads 16x + mute + skip",
 			Domains: []string{"youtube.com", "www.youtube.com", "m.youtube.com"},
-			JS: `var skipCheck=setInterval(function(){
-				var v=document.querySelector('video');
-				if(!v)return;
-				var adShowing=document.querySelector('.ytp-ad-player-overlay')||document.querySelector('.ad-showing');
-				if(adShowing){
-					v.playbackRate=16;
-					v.muted=true;
-					if(v.duration>0){v.currentTime=v.duration;}
-					var skipBtn=document.querySelector('.ytp-ad-skip-button')||document.querySelector('.ytp-ad-skip-button-modern');
-					if(skipBtn)skipBtn.click();
-				}
-			},100);
-			// Also intercept the polymer player config
-			try{
-				var _cfg=window.ytplayer;
-				if(_cfg&&_cfg.config){
-					_cfg.config.args=_cfg.config.args||{};
-				}
-			}catch(e){}`},
+			JS: "setInterval(function(){var v=document.querySelector('video');if(!v)return;var ad=document.querySelector('.ytp-ad-player-overlay')||document.querySelector('.ad-showing');if(ad){v.playbackRate=16;v.muted=true;if(v.duration>0)v.currentTime=v.duration;var s=document.querySelector('.ytp-ad-skip-button')||document.querySelector('.ytp-ad-skip-button-modern');if(s)s.click();}},100);"},
 		{Name: "yt-remove-ad-survey", Description: "YouTube: remove ad survey overlays",
 			Domains: []string{"youtube.com"},
-			JS: `var rmSurvey=setInterval(function(){
-				document.querySelectorAll('.ytp-ad-survey,.ytp-ad-overlay-close-container,.style-scope.ytd-ad-slot-renderer').forEach(function(el){el.remove();});
-				var adSlots=document.querySelectorAll('ytd-ad-slot-renderer,ytd-promoted-video-renderer');
-				adSlots.forEach(function(el){el.style.display='none';el.remove();});
-			},500);`},
-		{Name: "yt-block-ads-request", Description: "YouTube: block ad request API calls",
+			JS: "setInterval(function(){document.querySelectorAll('.ytp-ad-survey,.ytp-ad-overlay-close-container,ytd-ad-slot-renderer,ytd-promoted-video-renderer').forEach(function(el){el.remove();});},500);"},
+		{Name: "yt-block-ads-request", Description: "YouTube: block ad API calls",
 			Domains: []string{"youtube.com"},
-			JS: `var _ytFetch=window.fetch;
-			window.fetch=function(url,opts){
-				var u=typeof url==='string'?url:(url&&url.url||'');
-				if(u.match(/\/api\/stats\/ads|\/get_video_stats|\/ptracking|\/api\/timedtext.*ad/)){
-					return new Promise(function(){});
-				}
-				return _ytFetch.apply(this,arguments);
-			};
-			var _ytXhr=XMLHttpRequest.prototype.open;
-			XMLHttpRequest.prototype.open=function(method,url){
-				if(url&&url.match(/\/api\/stats\/ads|\/ptracking|ad_service/)){
-					throw new Error('WLT: YouTube ad request blocked');
-				}
-				return _ytXhr.apply(this,arguments);
-			};`},
-		{Name: "yt-sponsorblock", Description: "YouTube: SponsorBlock-style skip (basic)",
-			Domains: []string{"youtube.com"},
-			JS: `// Basic sponsor segment skip - checks for sponsor markers
-			var sponsorSkip=setInterval(function(){
-				var v=document.querySelector('video');
-				if(!v||!v.duration)return;
-				// Check for sponsor labels in the timeline
-				var segments=document.querySelectorAll('.ytp-progress-bar [data-sponsor]');
-				segments.forEach(function(seg){
-					var start=parseFloat(seg.getAttribute('data-start'));
-					var end=parseFloat(seg.getAttribute('data-end'));
-					if(v.currentTime>=start&&v.currentTime<end-0.5){
-						v.currentTime=end;
-					}
-				});
-			},1000);`},
+			JS: "var _yf=window.fetch;window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.url||'');if(s.match(/\\/api\\/stats\\/ads|\\/get_video_stats|\\/ptracking|ad_service/))return new Promise(function(){});return _yf.apply(this,arguments);};var _yx=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(u&&u.match(/\\/api\\/stats\\/ads|\\/ptracking|ad_service/))throw new Error('WLT');return _yx.apply(this,arguments);};"},
 
-		// === SPOTIFY SPECIFIC (3) — Phase 3 HTTPS MITM ===
+		// === SPOTIFY (3) ===
 		{Name: "spotify-ad-intercept", Description: "Spotify: intercept ad API responses",
 			Domains: []string{"spclient.wg.spotify.com", "api.spotify.com"},
-			JS: `// Intercept Spotify ad API calls
-			var _spFetch=window.fetch;
-			window.fetch=function(url,opts){
-				var u=typeof url==='string'?url:(url&&url.url||'');
-				if(u.match(/\/ad-ads|\/ads\/|\/audio-ad|\/partner-ad|ad_slot/)){
-					return new Promise(function(){
-						// Never resolves - ad request silently dropped
-					});
-				}
-				return _spFetch.apply(this,arguments);
-			};`},
-		{Name: "spotify-feature-flags", Description: "Spotify: override ad feature flags",
-			Domains: []string{"spclient.wg.spotify.com"},
-			JS: `// Override Spotify feature flags to disable ads
-			try{
-				if(window.Spotify){
-					var orig=window.Spotify.Player;
-					if(orig){
-						window.Spotify.Player=function(){
-							orig.apply(this,arguments);
-							this._options=this._options||{};
-							this._options.enableAds=false;
-							this._options.isPremium=true;
-						};
-						window.Spotify.Player.prototype=orig.prototype;
-					}
-				}
-			}catch(e){}
-			// Also intercept feature flag endpoint
-			var _spXhr=XMLHttpRequest.prototype.open;
-			XMLHttpRequest.prototype.open=function(m,u){
-				if(u&&u.match(/feature-flags|ad-format/)){
-					// Return empty ad config
-					var self=this;
-					setTimeout(function(){
-						Object.defineProperty(self,'responseText',{value:'{"ads":{},"enableAudioAds":false}'});
-						Object.defineProperty(self,'readyState',{value:4});
-						if(self.onreadystatechange)self.onreadystatechange();
-					},10);
-					return;
-				}
-				return _spXhr.apply(this,arguments);
-			};`},
-		{Name: "spotify-audio-ad-block", Description: "Spotify: block audio ad slot events",
-			Domains: []string{"spclient.wg.spotify.com", "apresolve.spotify.com"},
-			JS: `// Block Spotify audio ad slot events
-			var adEvents=['ad-slot','audio-ad','ad-partner','ad-impression'];
-			var _spEvt=window.dispatchEvent;
-			window.dispatchEvent=function(evt){
-				if(evt&&evt.type&&adEvents.some(function(e){return evt.type.indexOf(e)>=0;})){
-					return true; // Swallow ad events
-				}
-				return _spEvt.apply(this,arguments);
-			};
-			// Override EventTarget.addEventListener to filter ad events
-			var _spAEL=EventTarget.prototype.addEventListener;
-			EventTarget.prototype.addEventListener=function(type,fn,opts){
-				if(type&&adEvents.some(function(e){return type.indexOf(e)>=0;})){
-					return; // Don't register ad event listeners
-				}
-				return _spAEL.apply(this,arguments);
-			};`},
+			JS: "var _sf=window.fetch;window.fetch=function(u,o){var s=typeof u==='string'?u:(u&&u.url||'');if(s.match(/\\/ad-ads|\\/ads\\/|\\/audio-ad|\\/partner-ad|ad_slot/))return new Promise(function(){});return _sf.apply(this,arguments);};"},
+
+		// === TRUSTED SCRIPTLETS (3) — higher privilege ===
+		{Name: "trusted-replace-fetch-response", Description: "Modify fetch responses in real-time (uBlock trusted)", Domains: []string{},
+			JS: "var _trf=window.fetch;window.fetch=function(){var p=_trf.apply(this,arguments);return p.then(function(r){return r.clone();});};"},
+		{Name: "trusted-replace-xhr-response", Description: "Modify XHR responses (uBlock trusted)", Domains: []string{},
+			JS: "var _xhr=XMLHttpRequest;window.XMLHttpRequest=function(){var x=new _xhr();var _open=x.open;x.open=function(m,u){_open.apply(x,arguments);var _get=Object.getOwnPropertyDescriptor(x,'response');Object.defineProperty(x,'response',{get:function(){var r=_get?_get.get.call(x):x.response;return r;}});};return x;};"},
+		{Name: "trusted-click-element", Description: "Auto-click elements (uBlock trusted)", Domains: []string{},
+			JS: "window.__wltClick=function(sel){var el=document.querySelector(sel);if(el){el.click();return true;}return false;};"},
+
+		// === ADDITIONAL HARDCENING (3) ===
+		{Name: "break-on-call", Description: "Break specific function calls (uBlock)", Domains: []string{},
+			JS: "window.__wltBreak=function(obj,prop){var orig=obj[prop];obj[prop]=function(){throw new Error('WLT blocked: '+prop);};return function(){obj[prop]=orig;};};"},
+		{Name: "call-nothrow", Description: "Wrap function calls to suppress errors (uBlock)", Domains: []string{},
+			JS: "window.__wltSafeCall=function(fn){try{return fn();}catch(e){return undefined;}};"},
+		{Name: "json-prune", Description: "Remove properties from JSON responses (uBlock)", Domains: []string{},
+			JS: "var _jp=JSON.parse;JSON.parse=function(text){var r=_jp.apply(this,arguments);if(r&&typeof r==='object'){if(r.ads)delete r.ads;if(r.adPlacements)r.adPlacements=[];if(r.adSlots)r.adSlots=[];if(r.playerAds)r.playerAds=[];}return r;};"},
+
+		// === SPONSORBLOCK ===
+		{Name: "yt-sponsorblock", Description: "YouTube: SponsorBlock-style skip (basic)",
+			Domains: []string{"youtube.com"},
+			JS: "setInterval(function(){var v=document.querySelector('video');if(!v||!v.duration)return;var segs=document.querySelectorAll('.ytp-progress-bar [data-sponsor]');segs.forEach(function(seg){var st=parseFloat(seg.getAttribute('data-start'));var en=parseFloat(seg.getAttribute('data-end'));if(v.currentTime>=st&&v.currentTime<en-0.5)v.currentTime=en;});},1000);"},
 	}
 	for i, s := range e.scriptlets {
 		for _, d := range s.Domains { e.domainIndex[d] = append(e.domainIndex[d], i) }
