@@ -1,0 +1,43 @@
+# WLT TikTok/Snapchat/Twitch Ad & Tracker Domains
+# Based on research: M4jx/TikTokBlocklist, Netify.ai, HaGeZi, r/pihole
+# In-feed ads share CDN with content — these are telemetry/tracking endpoints.
+
+# TikTok Ad/Tracking
+ads.tiktok.com
+analytics.tiktok.com
+events.tiktok.com
+mssdk.tiktok.com
+log.tiktokv.com
+log-sg.tiktokv.com
+mon.tiktokv.com
+analytics-sg.tiktok.com
+events-sg.tiktok.com
+api-h2.tiktokv.com
+api.tiktokv.com
+mssdk-sg.tiktokv.com
+mssdk-va.tiktokv.com
+security-sdk.tiktokv.com
+tnc.tiktokv.com
+tnc-sg.tiktokv.com
+webcast.tiktokv.com
+business-api.tiktok.com
+business.tiktok.com
+
+# Snapchat Ad/Tracking
+ads-interfaces.sc-cdn.net
+ads.sc-cdn.net
+snap-ads.sc-cdn.net
+sc-analytics.appspot.com
+stats.snapchat.com
+snapads.com
+snapads.sc-cdn.net
+
+# Twitch Ad/Tracking
+ads.twitch.tv
+adsales.twitch.tv
+api.adsales.twitch.tv
+passport.twitch.tv
+trow.twitch.tv
+spade.twitch.tv
+events.twitch.tv
+scribe.twitch.tv

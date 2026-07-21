@@ -1,0 +1,58 @@
+# WLT Cryptojacking/Miner Blocklist
+# Based on: NoMiner, MinerBlock, MDPI research, RedTail campaign IoCs
+# Blocks known crypto mining pools and in-browser miner domains.
+
+# Coinhive and clones
+coinhive.com
+authedmine.com
+coinhive.io
+coin-hive.com
+authedcoin.com
+coinerra.com
+crypto-loot.com
+cryptoloot.com
+mineralt.io
+projectpoi.com
+coinhave.com
+coinnebula.com
+crypto-webminer.com
+load.jsecoin.com
+server.jsecoin.com
+minecr.cc
+miner.pr0gramm.com
+webminerpool.com
+
+# Mining pools (stratum protocol)
+nanopool.org
+minergate.com
+minexmr.com
+supportxmr.com
+moneroocean.stream
+xmrpool.net
+hashvault.pro
+monero.hashvault.pro
+pool.minexmr.com
+pool.supportxmr.com
+xmr.nanopool.org
+etc.ethereum-mining.org
+eth.nanopool.org
+zec.nanopool.org
+xmr.2miners.com
+etc.2miners.com
+eth.2miners.com
+pool.2miners.com
+
+# RedTail campaign IoCs (2025)
+libredtail-http
+redtail.miner
+
+# WebAssembly miners
+webassembly.miner
+wasm.miner
+cpu.miner
+
+# Additional mining domains
+miner.pr0gramm.com
+cloud.mining
+coinminer.com
+cryptonight.miner
