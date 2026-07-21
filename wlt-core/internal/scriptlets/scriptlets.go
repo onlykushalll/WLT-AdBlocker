@@ -135,8 +135,37 @@ func New() *Engine {
                 {Name: "json-prune", Description: "Remove properties from JSON responses (uBlock)", Domains: []string{},
                         JS: "var _jp=JSON.parse;JSON.parse=function(text){var r=_jp.apply(this,arguments);if(r&&typeof r==='object'){if(r.ads)delete r.ads;if(r.adPlacements)r.adPlacements=[];if(r.adSlots)r.adSlots=[];if(r.playerAds)r.playerAds=[];}return r;};"},
 
-                // === SPONSORBLOCK ===
-                {Name: "yt-sponsorblock", Description: "YouTube: SponsorBlock-style skip (basic)",
+                // === SPONSORBLOCK API INTEGRATION ===
+                {Name: "yt-sponsorblock-api", Description: "YouTube: SponsorBlock API — crowdsourced ad skipping",
+                        Domains: []string{"youtube.com", "www.youtube.com", "m.youtube.com"},
+                        JS: `(function(){
+                                var vid=new URLSearchParams(window.location.search).get('v');
+                                if(!vid){var m=window.location.pathname.match(/\\/embed\\/([^/?]+)/);if(m)vid=m[1];}
+                                if(!vid)return;
+                                fetch('https://sponsor.ajay.app/api/skipSegments?videoID='+vid)
+                                .then(function(r){return r.ok?r.json():[];})
+                                .then(function(segs){
+                                        if(!segs||!segs.length)return;
+                                        var data=segs.map(function(s){return{s:s.segment[0],e:s.segment[1],c:s.category};});
+                                        setInterval(function(){
+                                                var v=document.querySelector('video');if(!v||!v.duration)return;
+                                                for(var i=0;i<data.length;i++){
+                                                        if(v.currentTime>=data[i].s&&v.currentTime<data[i].e-0.3){
+                                                                v.currentTime=data[i].e;
+                                                                var n=document.createElement('div');
+                                                                n.style.cssText='position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.8);color:#0f0;padding:4px 12px;border-radius:4px;font:14px sans-serif;z-index:99999;pointer-events:none;';
+                                                                n.textContent='WLT: Skipped '+data[i].c;
+                                                                var p=document.querySelector('#movie_player')||document.querySelector('.html5-video-player');
+                                                                if(p){p.appendChild(n);setTimeout(function(){n.remove();},2000);}
+                                                                break;
+                                                        }
+                                                }
+                                        },200);
+                                }).catch(function(){});
+                        })();`},
+
+                // === SPONSORBLOCK (basic DOM-based) ===
+                {Name: "yt-sponsorblock", Description: "YouTube: SponsorBlock DOM-based skip (fallback)",
                         Domains: []string{"youtube.com"},
                         JS: "setInterval(function(){var v=document.querySelector('video');if(!v||!v.duration)return;var segs=document.querySelectorAll('.ytp-progress-bar [data-sponsor]');segs.forEach(function(seg){var st=parseFloat(seg.getAttribute('data-start'));var en=parseFloat(seg.getAttribute('data-end'));if(v.currentTime>=st&&v.currentTime<en-0.5)v.currentTime=en;});},1000);"},
 

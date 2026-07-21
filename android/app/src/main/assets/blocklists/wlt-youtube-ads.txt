@@ -1,0 +1,91 @@
+# WLT YouTube Comprehensive Ad/Tracker Blocklist
+# Blocks ALL YouTube ad-serving, tracking, and telemetry domains.
+# Video CDN (googlevideo.com) is ALLOWED to avoid breaking video playback.
+# Ad segments within the stream are stripped via m3u-prune (Phase 3).
+
+# === YouTube Ad Serving (CSAI) ===
+googleads.g.doubleclick.net
+pagead2.googlesyndication.com
+googleads4.g.doubleclick.net
+adclick.g.doubleclick.net
+ad.doubleclick.net
+adservice.google.com
+pubads.g.doubleclick.net
+admob.google.com
+ads.google.com
+googlesyndication.com
+googleadservices.com
+googletagservices.com
+doubleclick.net
+s0.2mdn.net
+s1.2mdn.net
+s2.2mdn.net
+s3.2mdn.net
+2mdn.net
+*.doubleclick.net
+*.googlesyndication.com
+*.googleadservices.com
+*.googletagservices.com
+*.2mdn.net
+
+# === YouTube Tracking/Telemetry ===
+www.google-analytics.com
+ssl.google-analytics.com
+youtubei.googleapis.com
+youtubei.googleusercontent.com
+s.youtube.com
+video-stats.video.google.com
+stats.g.doubleclick.net
+sandbox.google.com
+client-channel.google.com
+takeout.google.com
+accounts.google.com
+securetoken.googleapis.com
+ogg.google.com
+ai.ytimg.com
+i.ytimg.com
+s.ytimg.com
+yt3.ggpht.com
+
+# === YouTube Ad Creative CDN ===
+googleads.g.doubleclick.net
+video.google.com
+*.video.google.com
+creative.googleads.g.doubleclick.net
+
+# === YouTube Mobile App Ad Domains ===
+ad-m.google.com
+ad.doubleclick.net
+adservice.google.com
+googleads.g.doubleclick.net
+pagead2.googlesyndication.com
+pubads.g.doubleclick.net
+adclick.g.doubleclick.net
+googleads4.g.doubleclick.net
+
+# === YouTube Shorts Ads ===
+shorts.ads.google.com
+shorts.googleads.g.doubleclick.net
+
+# === YouTube Music Ads ===
+music.ads.google.com
+music.googleads.g.doubleclick.net
+music-ad.doubleclick.net
+
+# === YouTube Kids Ads ===
+kids.ads.google.com
+kids.googleads.g.doubleclick.net
+
+# === YouTube Embed Ads ===
+embeds.doubleclick.net
+embedads.google.com
+
+# === Google Publisher Tags (GPT) ===
+securepubads.g.doubleclick.net
+*.securepubads.g.doubleclick.net
+service.google.com
+adservice.google.com
+
+# === YouTube A/B Testing / Experiment Ad Domains ===
+experimentads.google.com
+abtest.googleads.g.doubleclick.net
