@@ -1,0 +1,83 @@
+# WLT Smart TV / Streaming Ad & Tracker Domains
+# Blocks promo/menu/screensaver ads and telemetry on Smart TVs.
+# In-stream video ads share CDN with content — cannot DNS block.
+
+# Samsung (Tizen)
+ad.samsungadhub.com
+ads.samsungads.com
+samsungads.com
+log-ingestion.samsungads.com
+ads.samsung.com
+analytics.samsung.com
+samsungtifa.com
+metricsdata.samsung.com
+
+# Roku
+cooper.logs.roku.com
+track.sr.roku.com
+advertising.roku.com
+ads.roku.com
+partnerads.roku.com
+logs.roku.com
+analytics.roku.com
+adserver.roku.com
+
+# LG (webOS)
+adinfo.lg.com
+ad.lgads.com
+lgad.com
+analytics.lg.com
+lgsmartad.com
+smartad.lg.com
+ad.lgsmarttv.com
+
+# Vizio
+ads.vizio.com
+analytics.vizio.com
+tracking.vizio.com
+
+# Hulu
+ads.hulu.com
+adserver.hulu.com
+analytics.hulu.com
+imasdk.hulu.com
+
+# Peacock
+ads.peacocktv.com
+adserver.peacocktv.com
+analytics.peacocktv.com
+
+# Disney+
+ads.disneyplus.com
+adserver.disneyplus.com
+analytics.disneyplus.com
+
+# Paramount+
+ads.paramountplus.com
+adserver.paramountplus.com
+
+# Amazon Prime Video
+ads.primevideo.com
+adserver.primevideo.com
+aax.amazon-adsystem.com
+
+# HBO Max / Max
+ads.max.com
+adserver.max.com
+ads.hbomax.com
+
+# General Streaming Ad Networks
+fwmrm.net
+freewheel.tv
+video.fwmrm.net
+adm.fwmrm.net
+smartadserver.com
+rubiconproject.com
+pubmatic.com
+criteo.com
+criteo.net
+adnxs.com
+openx.net
+spotx.tv
+spotxchange.com
+triplelift.com

@@ -1,0 +1,121 @@
+# WLT Additional Tracker/Analytics Domains
+# Based on AdGuard 2025 tracker report + HaGeZi research
+# These are the top tracker domains NOT already in wlt-game-ads.txt
+
+# Google
+googletagmanager.com
+google.com/pagead
+adservice.google.com
+app-measurement.com
+firebaseinstallations.googleapis.com
+crashlytics.googleapis.com
+firebaseremoteconfig.googleapis.com
+cloudconfig.googleapis.com
+doubleclick-bygoogle.com
+
+# Meta/Facebook
+connect.facebook.net
+graph.facebook.com
+pixel.facebook.com
+analytics.facebook.com
+fbanalytics.com
+fb.me
+fbsbx.com
+
+# Amazon
+amazon-adsystem.com
+aax.amazon-adsystem.com
+amzn.to
+assoc-amazon.com
+
+# Microsoft
+bat.bing.com
+clarity.ms
+browser.events.data.microsoft.com
+telemetry.microsoft.com
+vortex.data.microsoft.com
+
+# Analytics/Tracking
+scorecardresearch.com
+quantserve.com
+quantcount.com
+comscore.com
+nr-data.net
+newrelic.com
+mixpanel.com
+amplitude.com
+segment.io
+segment.com
+hotjar.com
+fullstory.com
+logrocket.com
+mouseflow.com
+chartbeat.com
+chartbeat.net
+parsely.com
+parsely-key.com
+chartbeat.com
+
+# Ad Networks
+adnxs.com
+rubiconproject.com
+pubmatic.com
+criteo.com
+criteo.net
+openx.net
+contextweb.com
+spotx.tv
+spotxchange.com
+triplelift.com
+taboola.com
+outbrain.com
+mgid.com
+revcontent.com
+adsterra.com
+propellerads.com
+popads.net
+popcash.net
+admatic.com
+adform.net
+adform.com
+serving-sys.com
+demdex.net
+ds.waterfrontmedia.com
+adsymptotic.com
+casalemedia.com
+moatads.com
+moatpixel.com
+serving-sys.com
+
+# Mobile Attribution/Deep Linking
+appsflyer.com
+adjust.com
+adjust.net
+branch.io
+kochava.com
+singular.net
+tenjin.com
+appsflyersdk.com
+ Attribution.com
+swrve.com
+localytics.com
+
+# Push Notification Analytics
+onesignal.com
+pushwoosh.com
+urbanairship.com
+firebasecloudmessaging.googleapis.com
+
+# Crash/Telemetry (privacy-invasive)
+sentry.io
+bugsnag.com
+crashlytics.googleapis.com
+smartbear.com
+raygun.io
+
+# IoT/Smart Home Telemetry
+device-metrics-us.amazon.com
+device-metrics-us-2.amazon.com
+unagi-na.amazon.com
+unagi.amazon.com
+ *.device-metrics-us.amazon.com
