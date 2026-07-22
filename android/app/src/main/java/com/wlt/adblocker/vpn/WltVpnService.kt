@@ -34,13 +34,13 @@ class WltVpnService : VpnService() {
     private var statsJob: Job? = null
     @Volatile private var isRunning = false
     @Volatile var pausedUntil: Long = 0L
+    private val outputLock = Any()
 
     private val goEngine = GoBlockEngine()
     private val kotlinFallbackEngine = KotlinBlockEngine()
     private val dnsResolver = DnsResolver("cloudflare")
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand")
         when (intent?.action) {
             ACTION_PAUSE -> { val m = intent.getIntExtra(EXTRA_PAUSE_MINUTES, 5); pausedUntil = System.currentTimeMillis() + m * 60_000L; updateNotification(); return START_STICKY }
             ACTION_RESUME -> { pausedUntil = 0L; updateNotification(); return START_STICKY }
@@ -100,40 +100,36 @@ class WltVpnService : VpnService() {
         System.arraycopy(packet, dnsOffset, dnsPayload, 0, dnsLength)
         val domain = DnsPacketParser.extractQueryDomain(dnsPayload, dnsLength)
         if (domain == null || isPaused()) { forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output); return }
-
         val shouldBlock = if (goEngine.isAvailable()) goEngine.shouldBlock(domain) else kotlinFallbackEngine.shouldBlock(domain)
         val reason = if (goEngine.isAvailable()) goEngine.lastBlockReason else kotlinFallbackEngine.lastBlockReason
         val sdk = kotlinFallbackEngine.detectSdk(domain)
-
         BlockStats.onQuery(domain, shouldBlock)
         QueryLog.add(QueryLogEntry(domain, System.currentTimeMillis(), shouldBlock, reason, sdk))
-
         if (shouldBlock) {
             val dnsResp = DnsPacketParser.buildNxDomain(dnsPayload, dnsLength)
             val ipResp = buildIpUdpResponse(packet, ipHeaderLen, dnsResp)
-            if (ipResp.isNotEmpty()) { try { output.write(ipResp) } catch (e: Exception) {} }
-        } else {
-            forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output)
-        }
+            if (ipResp.isNotEmpty()) { synchronized(outputLock) { try { output.write(ipResp) } catch (e: Exception) {} } }
+        } else { forwardUpstream(dnsPayload, packet, ipHeaderLen, packetLen, output) }
     }
 
     private fun forwardUpstream(dnsPayload: ByteArray, packet: ByteArray, ipHeaderLen: Int, packetLen: Int, output: FileOutputStream) {
+        var socket: DatagramSocket? = null
         try {
-            val socket = DatagramSocket()
+            socket = DatagramSocket()
             protect(socket)
             val respBytes = dnsResolver.resolve(dnsPayload, socket)
-            socket.close()
             if (respBytes == null || respBytes.size < 12) return
             val cnames = DnsPacketParser.extractCnameTargets(respBytes, respBytes.size)
             if (cnames.isNotEmpty() && kotlinFallbackEngine.checkCnameChain(cnames)) {
                 val dnsResp = DnsPacketParser.buildNxDomain(dnsPayload, dnsPayload.size)
                 val ipResp = buildIpUdpResponse(packet, ipHeaderLen, dnsResp)
-                if (ipResp.isNotEmpty()) output.write(ipResp)
+                if (ipResp.isNotEmpty()) { synchronized(outputLock) { output.write(ipResp) } }
                 return
             }
             val ipResp = buildIpUdpResponse(packet, ipHeaderLen, respBytes)
-            if (ipResp.isNotEmpty()) output.write(ipResp)
+            if (ipResp.isNotEmpty()) { synchronized(outputLock) { output.write(ipResp) } }
         } catch (e: Exception) { Log.w(TAG, "upstream DNS failed: ${e.message}") }
+        finally { socket?.close() }
     }
 
     private fun buildIpUdpResponse(originalPacket: ByteArray, ipHeaderLen: Int, dnsPayload: ByteArray): ByteArray {
