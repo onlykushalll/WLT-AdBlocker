@@ -52,8 +52,12 @@ class GoBlockEngine(
         try {
             // Reflection-based load: avoids a hard compile-time dependency on
             // com.wlt.mobile.Mobile. If the .aar isn't on the classpath, the
-            // Class.forName throws ClassNotFoundException and we fall back.
-            val mobileClass = Class.forName("com.wlt.mobile.Mobile")
+            // CRITICAL FIX: gomobile generates Java classes based on the Go
+            // package name. Our Go package is "adblocker" (in mobile.go), so
+            // gomobile generates class "adblocker.Mobile". Previously this was
+            // "com.wlt.mobile.Mobile" which never matched — the Go engine was
+            // never loaded, even when the .aar was present.
+            val mobileClass = Class.forName("adblocker.Mobile")
             val newEngineMethod = mobileClass.getMethod("newEngine")
             goEngine = newEngineMethod.invoke(null)
             goEngineLoaded = (goEngine != null)

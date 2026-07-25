@@ -83,8 +83,8 @@ class WltVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1001
 
         private const val VPN_ADDRESS = "10.66.6.6"      // TUN interface address
-        private const val VPN_ROUTE = "0.0.0.0"          // route all traffic through TUN
-        private const val VPN_DNS = "1.1.1.1"            // advertised DNS (we intercept)
+        private const val VPN_ROUTE = "10.66.6.6"        // ONLY route VPN address (DNS-only mode)
+        private const val VPN_DNS = "10.66.6.6"          // DNS server = VPN address (system sends DNS here)
         private const val VPN_MTU = 1500
         private const val DNS_PORT = 53
         private const val PACKET_BUFFER_SIZE = 32_767
@@ -198,10 +198,16 @@ class WltVpnService : VpnService() {
         dnsCache = DnsCache(10_000) // Phase 8a: 10K entry LRU cache (~1MB)
         domainIpCache = DomainIpCache(5_000) // Phase 9a: IP→domain reverse lookup
 
-        // Load blocklists in background — don't block onCreate.
-        serviceScope.launch {
+        // CRITICAL FIX: Load blocklists SYNCHRONOUSLY before VPN starts.
+        // Previously this was async, so the VPN started with empty blocklists
+        // and nothing was blocked. Now we load in onCreate (blocking) so the
+        // trie is populated before the user can start the VPN.
+        try {
             kotlinBlockEngine.loadBundledBlocklists()
             goBlockEngine.loadBundledBlocklists()
+            Log.i(TAG, "Blocklists loaded synchronously in onCreate")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load blocklists in onCreate", e)
         }
 
         // Load persisted pause state in background. The non-suspending
@@ -278,7 +284,7 @@ class WltVpnService : VpnService() {
             .setSession("WLT-Adblocker")
             .setMtu(VPN_MTU)
             .addAddress(VPN_ADDRESS, 32)
-            .addRoute(VPN_ROUTE, 0)
+            .addRoute(VPN_ROUTE, 32)  // CRITICAL FIX: prefix 32 = only route VPN address, NOT all traffic
             .addDnsServer(VPN_DNS)
             .setBlocking(true)
             .setConfigureIntent(buildConfigureIntent() ?: return)
