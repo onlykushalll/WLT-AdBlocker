@@ -1,21 +1,4 @@
-﻿# Android
-*.apk
-*.aab
-*.ap_
-*.dex
-*.class
-*.keystore
-*.jks
-local.properties
-.gradle/
-build/
-/app/build/
-*.iml
-.idea/
-captures/
-.cxx/
-
-# Go
+# === Go ===
 *.exe
 *.exe~
 *.dll
@@ -23,13 +6,71 @@ captures/
 *.dylib
 *.test
 *.out
-wlt-core/wlt.aar
-wlt-core/*.aar
+go.work
 
-# OS
+# === Android ===
+android/app/build/
+android/.gradle/
+android/local.properties
+android/app/libs/wlt.aar
+android/app/libs/wlt-sources.jar
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.keystore
+*.jks
+keystore.properties
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
 .DS_Store
-Thumbs.db
-desktop.ini
 
-# Logs
+# === Next.js / Node ===
+node_modules/
+.next/
+out/
+.env*.local
+
+# === Build artifacts ===
 *.log
+*.tmp
+/tmp/
+
+# === OS ===
+Thumbs.db
+.DS_Store
+
+# === MCPilot (private — not for public repo) ===
+scripts/mcpilot/
+
+# === Dev server ===
+dev.log
+
+# === Windows build scripts (not needed in repo) ===
+android/scripts/
+
+# === Tool results ===
+tool-results/
+
+# === Download/upload ===
+download/
+upload/
+
+# === Zscripts ===
+.zscripts/
+
+# === Examples ===
+examples/
+
+# === Mini-services ===
+mini-services/
+
+# === Skills ===
+skills/
