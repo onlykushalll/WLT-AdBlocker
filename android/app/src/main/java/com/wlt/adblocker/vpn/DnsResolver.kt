@@ -48,10 +48,18 @@ class DnsResolver(private val context: Context) {
         )
 
         val UPSTREAMS: List<Upstream> = listOf(
-            Upstream("cloudflare", "https://cloudflare-dns.com/dns-query", "1.1.1.1"),
-            Upstream("google", "https://dns.google/dns-query", "8.8.8.8"),
-            Upstream("quad9", "https://dns.quad9.net/dns-query", "9.9.9.9"),
-            Upstream("adguard", "https://dns.adguard.com/dns-query", "94.140.14.14"),
+            // CRITICAL FIX: Use IP-based DoH URLs, not domain-based.
+            // Domain-based URLs (cloudflare-dns.com) require DNS resolution,
+            // but our own blocklist blocks DoH bypass domains including
+            // cloudflare-dns.com. This creates a circular dependency:
+            // 1. Query for cloudflare-dns.com → goes to VPN TUN
+            // 2. WLT blocks it (DoH bypass prevention) → NXDOMAIN
+            // 3. DoH can't connect → DNS resolution fails
+            // IP-based URLs avoid this: 1.1.1.1 doesn't need DNS resolution.
+            Upstream("cloudflare", "https://1.1.1.1/dns-query", "1.1.1.1"),
+            Upstream("google", "https://8.8.8.8/dns-query", "8.8.8.8"),
+            Upstream("quad9", "https://9.9.9.9/dns-query", "9.9.9.9"),
+            Upstream("adguard", "https://94.140.14.14/dns-query", "94.140.14.14"),
         )
 
         fun upstreamByName(name: String): Upstream? = UPSTREAMS.firstOrNull { it.name == name }
