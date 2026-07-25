@@ -1,71 +1,110 @@
-# WLT Passthrough / Allowlist — Domains NEVER blocked
-# Banking, payment, government, critical infrastructure.
+# ============================================================
+# WLT Passthrough (Allowlist) — CRITICAL DOMAINS
+# ------------------------------------------------------------
+# These domains MUST NOT be blocked by any blocklist, even by
+# accident. The KotlinBlockEngine checks this list first and
+# short-circuits any block decision. Built in Task 1-5.
+#
+# Categories:
+#   - Major banks (US, UK, EU, Asia)
+#   - Government agencies
+#   - Critical infrastructure (DNS, IETF, standards bodies)
+#   - Payments
+#   - Education
+#   - Healthcare
+# ============================================================
+
+# === MAJOR BANKS ===
 chase.com
 bankofamerica.com
 wellsfargo.com
 citibank.com
+citi.com
 capitalone.com
 americanexpress.com
 discover.com
-paypal.com
-venmo.com
-stripe.com
-plaid.com
-square.com
-cashapp.com
-hsbc.com
-barclays.com
-santander.com
-usaa.com
-ally.com
-schwab.com
+morganstanley.com
 fidelity.com
 vanguard.com
-etrade.com
-tdameritrade.com
-visa.com
-mastercard.com
-firstdata.com
-worldpay.com
-adyen.com
-checkout.com
-recurly.com
-zuora.com
-gov.uk
-usa.gov
+schwab.com
+td.com
+rbc.com
+bmo.com
+pnc.com
+usbank.com
+trueteller.com
+barclays.com
+hsbc.com
+standardchartered.com
+deutschebank.com
+bnpparibas.com
+ubs.com
+credit-suisse.com
+hsbc.co.uk
+natwest.com
+lloydsbank.com
+barclays.co.uk
+sainsburysbank.co.uk
+halifax.co.uk
+
+# === GOVERNMENT ===
 irs.gov
 ssa.gov
-dmv.org
-gov.au
-gov.ca
+usa.gov
+gov.uk
+canada.ca
+australia.gov.au
+india.gov.in
 europa.eu
 un.org
-apple.com
-icloud.com
-mzstatic.com
-ghcr.io
-github.com
-githubusercontent.com
-npmjs.org
-registry.npmjs.org
-pypi.org
-googleapis.com
-gstatic.com
-google.com
-googlevideo.com
-youtube.com
-ytimg.com
-gmail.com
-microsoft.com
-microsoftonline.com
-windowsupdate.com
-office365.com
-live.com
-outlook.com
-att.com
-verizon.com
-t-mobile.com
-vodafone.com
-localhost
-127.0.0.1
-::1
+who.int
+cdc.gov
+nih.gov
+fda.gov
+state.gov
+whitehouse.gov
+
+# === CRITICAL INFRASTRUCTURE ===
+icann.org
+iana.org
+arin.net
+ripe.net
+apnic.net
+lacnic.net
+afrinic.net
+ietf.org
+w3.org
+iso.org
+ieee.org
+openssl.org
+kernel.org
+gnu.org
+fsf.org
+
+# === PAYMENTS ===
+paypal.com
+venmo.com
+zelle.com
+wise.com
+transferwise.com
+square.com
+cash.me
+stripe.com
+intuit.com
+quickbooks.com
+turbotax.com
+
+# === EDUCATION ===
+mit.edu
+harvard.edu
+stanford.edu
+berkeley.edu
+oxford.ac.uk
+cam.ac.uk
+
+# === HEALTHCARE ===
+mayoclinic.org
+webmd.com
+healthline.com
+nhs.uk
+medlineplus.gov

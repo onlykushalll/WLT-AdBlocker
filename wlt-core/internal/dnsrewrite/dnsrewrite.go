@@ -1,183 +1,215 @@
-// Package dnsrewrite implements DNS response rewriting — the ability to
-// return custom DNS responses instead of just NXDOMAIN/0.0.0.0.
+// Package dnsrewrite implements an AdGuard-style DNS rewrite engine.
 //
-// Inspired by AdGuard Home's $dnsrewrite modifier:
-//   ||example.com^$dnsrewrite=NOERROR;A;1.2.3.4
-//   ||example.com^$dnsrewrite=NOERROR;AAAA;::1
-//   ||example.com^$dnsrewrite=NOERROR;CNAME;safe.example.com
-//   ||example.com^$dnsrewrite=NXDOMAIN;;
+// Each Rule maps a domain to one of five rewrite outcomes:
 //
-// This is more powerful than simple blocking because:
-//   1. We can REDIRECT ad domains to a local ad page instead of breaking them
-//   2. We can rewrite CNAME chains to prevent cloaking
-//   3. We can return custom IPs for specific domains (split-horizon DNS)
-//   4. We can return REFUSED instead of NXDOMAIN for different app behavior
+//   - NXDOMAIN   — the resolver returns RCODE 3 (name error).
+//   - NullIP     — the resolver returns an A record of 0.0.0.0.
+//   - REFUSED    — the resolver returns RCODE 5 (refused).
+//   - CustomIP   — the resolver returns an A record with the given IP.
+//   - CNAME      — the resolver returns a CNAME to the given target.
+//
+// Matching is suffix-based: a rule for "example.com" matches
+// "sub.example.com" and "example.com" itself. This mirrors AdGuard's
+// `dnsrewrite` rule modifier.
 package dnsrewrite
 
 import (
-	"net"
-	"strings"
-	"sync"
+        "net/netip"
+        "strings"
+        "sync"
 )
 
-// RewriteType defines what kind of rewrite to perform.
+// RewriteType is the kind of DNS rewrite a Rule represents.
 type RewriteType int
 
 const (
-	RewriteNXDomain  RewriteType = iota // Return NXDOMAIN
-	RewriteNullIP                        // Return 0.0.0.0 or ::
-	RewriteRefused                       // Return REFUSED
-	RewriteCustomIP                      // Return specific IP
-	RewriteCNAME                         // Return CNAME (redirect)
-	RewritePassthrough                   // Don't rewrite (allow)
+        // NXDOMAIN returns RCODE 3 (name error) — the domain doesn't exist.
+        NXDOMAIN RewriteType = iota
+        // NullIP returns an A record with address 0.0.0.0 — the client
+        // silently fails to connect.
+        NullIP
+        // REFUSED returns RCODE 5 (refused) — the resolver is unwilling to
+        // answer.
+        REFUSED
+        // CustomIP returns an A record with the given CustomIP address.
+        CustomIP
+        // CNAME returns a CNAME record pointing to CNAMETarget.
+        CNAME
 )
 
-// Rule defines a DNS rewrite rule.
+// Rule is a single DNS rewrite rule.
 type Rule struct {
-	Domain    string      // domain to match (suffix match)
-	Type      RewriteType // what to do
-	IPv4      net.IP      // for RewriteCustomIP (A record)
-	IPv6      net.IP      // for RewriteCustomIP (AAAA record)
-	CNAMETarget string    // for RewriteCNAME
-	Reason    string      // human-readable reason for forensics
+        Domain      string
+        Type        RewriteType
+        CustomIP    netip.Addr
+        CNAMETarget string
 }
 
-// Engine holds all rewrite rules.
+// Engine is a suffix-matching DNS rewrite engine.
 type Engine struct {
-	mu    sync.RWMutex
-	rules map[string]*Rule // domain -> rule
+        mu    sync.RWMutex
+        rules map[string]Rule // exact-suffix key -> rule (no wildcards; suffix match done at lookup)
 }
 
-// New creates an empty rewrite engine.
+// New returns an empty Engine.
 func New() *Engine {
-	return &Engine{rules: make(map[string]*Rule)}
+        return &Engine{rules: make(map[string]Rule)}
 }
 
-// AddRule adds a rewrite rule.
-func (e *Engine) AddRule(rule *Rule) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	d := strings.ToLower(strings.TrimSpace(rule.Domain))
-	rule.Domain = d
-	e.rules[d] = rule
+// AddRule adds a rewrite rule. Domain is lowercased and stripped of any
+// trailing dot.
+func (e *Engine) AddRule(rule Rule) {
+        rule.Domain = normalize(rule.Domain)
+        if rule.Domain == "" {
+                return
+        }
+        e.mu.Lock()
+        defer e.mu.Unlock()
+        e.rules[rule.Domain] = rule
 }
 
-// AddBlock adds a simple NXDOMAIN block rule.
-func (e *Engine) AddBlock(domain string) {
-	e.AddRule(&Rule{
-		Domain: domain,
-		Type:   RewriteNXDomain,
-		Reason: "blocklist",
-	})
+// RemoveRule removes the rule for the given domain (if any).
+func (e *Engine) RemoveRule(domain string) {
+        domain = normalize(domain)
+        e.mu.Lock()
+        defer e.mu.Unlock()
+        delete(e.rules, domain)
 }
 
-// AddNullIP adds a 0.0.0.0 sinkhole rule.
-func (e *Engine) AddNullIP(domain string) {
-	e.AddRule(&Rule{
-		Domain: domain,
-		Type:   RewriteNullIP,
-		Reason: "sinkhole",
-	})
-}
+// Rewrite returns the rewrite rule matching domain (suffix match), or nil
+// if no rule matches. Longest-suffix-wins: a rule for "ads.example.com"
+// takes precedence over a rule for "example.com" when both match.
+func (e *Engine) Rewrite(domain string) *Rule {
+        domain = normalize(domain)
+        if domain == "" {
+                return nil
+        }
+        e.mu.RLock()
+        defer e.mu.RUnlock()
 
-// AddRedirect adds a CNAME redirect rule.
-func (e *Engine) AddRedirect(domain, target string) {
-	e.AddRule(&Rule{
-		Domain:      domain,
-		Type:        RewriteCNAME,
-		CNAMETarget: target,
-		Reason:      "redirect",
-	})
-}
-
-// AddCustomIP adds a custom IP response rule (split-horizon DNS).
-func (e *Engine) AddCustomIP(domain string, ipv4, ipv6 net.IP) {
-	e.AddRule(&Rule{
-		Domain: domain,
-		Type:   RewriteCustomIP,
-		IPv4:   ipv4,
-		IPv6:   ipv6,
-		Reason: "custom-ip",
-	})
-}
-
-// Lookup checks if a domain has a rewrite rule.
-// Returns the rule and true if found, nil and false otherwise.
-// Performs suffix matching: a rule for "example.com" matches "sub.example.com".
-func (e *Engine) Lookup(domain string) (*Rule, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	d := strings.ToLower(strings.TrimSpace(domain))
-	d = strings.Trim(d, ".")
-
-	// Check exact match first
-	if rule, ok := e.rules[d]; ok {
-		return rule, true
-	}
-
-	// Check suffix matches
-	labels := strings.Split(d, ".")
-	for i := 0; i < len(labels)-1; i++ {
-		suffix := strings.Join(labels[i:], ".")
-		if rule, ok := e.rules[suffix]; ok {
-			return rule, true
-		}
-	}
-
-	return nil, false
-}
-
-// RuleCount returns the number of rewrite rules.
-func (e *Engine) RuleCount() int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return len(e.rules)
-}
-
-// LoadDefaults loads common rewrite rules.
-func (e *Engine) LoadDefaults() {
-	// Redirect common ad domains to 0.0.0.0 (sinkhole)
-	adDomains := []string{
-		"doubleclick.net",
-		"googlesyndication.com",
-		"googleadservices.com",
-		"adservice.google.com",
-		"admob.google.com",
-		"googletagservices.com",
-		"applovin.com",
-		"ironsrc.com",
-		"chartboost.com",
-		"vungle.com",
-		"adcolony.com",
-		"mintegral.com",
-		"fyber.com",
-		"tapjoy.com",
-		"inmobi.com",
-	}
-	for _, d := range adDomains {
-		e.AddNullIP(d)
-	}
-
-	// Redirect DoH bypass endpoints to NXDOMAIN
-	dohDomains := []string{
-		"dns.google",
-		"cloudflare-dns.com",
-		"dns.quad9.net",
-		"doh.opendns.com",
-		"dns.adguard.com",
-	}
-	for _, d := range dohDomains {
-		e.AddRule(&Rule{
-			Domain: d,
-			Type:   RewriteRefused,
-			Reason: "DoH bypass prevention",
-		})
-	}
+        // Walk every suffix of the domain from longest to shortest. The first
+        // match wins (longest-suffix-wins).
+        labels := strings.Split(domain, ".")
+        for i := 0; i < len(labels); i++ {
+                suffix := strings.Join(labels[i:], ".")
+                if r, ok := e.rules[suffix]; ok {
+                        out := r
+                        return &out
+                }
+        }
+        return nil
 }
 
 // Clear removes all rules.
 func (e *Engine) Clear() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.rules = make(map[string]*Rule)
+        e.mu.Lock()
+        defer e.mu.Unlock()
+        e.rules = make(map[string]Rule)
+}
+
+// Count returns the number of registered rules.
+func (e *Engine) Count() int {
+        e.mu.RLock()
+        defer e.mu.RUnlock()
+        return len(e.rules)
+}
+
+// LoadDefaults populates the engine with the WLT default rewrite rules:
+//   - 21 ad/tracker domains sinkholed to 0.0.0.0 (NullIP).
+//   - 5 DoH bypass domains refused (so apps can't escape the VPN DNS via
+//     DoH).
+//   - Safe Search DNS rewrites (AdGuard Home technique): force Google,
+//     Bing, DuckDuckGo, YouTube, and Pixabay to their safe-search endpoints.
+func (e *Engine) LoadDefaults() {
+        adDomains := []string{
+                "doubleclick.net",
+                "googlesyndication.com",
+                "googleadservices.com",
+                "googletagservices.com",
+                "google-analytics.com",
+                "adservice.google.com",
+                "adsystem.com",
+                "adsrvr.org",
+                "2mdn.net",
+                "amazon-adsystem.com",
+                "ads.yahoo.com",
+                "ads.tiktok.com",
+                "analytics.tiktok.com",
+                "events.tiktok.com",
+                "ads-sg.tiktok.com",
+                "adsnap.com",
+                "adcolony.com",
+                "applovin.com",
+                "chartboost.com",
+                "vungle.com",
+                "unityads.unity3d.com",
+        }
+        for _, d := range adDomains {
+                e.AddRule(Rule{Domain: d, Type: NullIP})
+        }
+        dohDomains := []string{
+                "dns.google",
+                "cloudflare-dns.com",
+                "dns.quad9.net",
+                "dns.adguard.com",
+                "dns.mullvad.net",
+        }
+        for _, d := range dohDomains {
+                e.AddRule(Rule{Domain: d, Type: REFUSED})
+        }
+        e.LoadSafeSearch()
+}
+
+// LoadSafeSearch adds DNS rewrite rules that force search engines and
+// YouTube to their "Safe Search" endpoints. This is the AdGuard Home
+// technique — by CNAME-redirecting the regular search domain to the
+// safe-search variant, all queries automatically get filtered results
+// regardless of the user's browser settings.
+//
+// These rules are CNAME rewrites (the DNS response tells the client to
+// look up the safe-search domain instead). The client then resolves the
+// safe-search domain normally.
+func (e *Engine) LoadSafeSearch() {
+        // Google Safe Search: www.google.com → forcesafesearch.google.com
+        e.AddRule(Rule{Domain: "www.google.com", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        // Google Safe Search for country variants
+        e.AddRule(Rule{Domain: "www.google.ad", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.ae", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.at", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.be", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.ca", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.ch", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.cl", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.co.in", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.co.jp", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.co.uk", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.de", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.es", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.fr", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.it", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.mx", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.nl", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.pl", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.ru", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+        e.AddRule(Rule{Domain: "www.google.se", Type: CNAME, CNAMETarget: "forcesafesearch.google.com"})
+
+        // Bing Safe Search
+        e.AddRule(Rule{Domain: "www.bing.com", Type: CNAME, CNAMETarget: "strict.bing.com"})
+
+        // DuckDuckGo Safe Search
+        e.AddRule(Rule{Domain: "duckduckgo.com", Type: CNAME, CNAMETarget: "safe.duckduckgo.com"})
+
+        // YouTube Restricted Mode (Education version)
+        e.AddRule(Rule{Domain: "www.youtube.com", Type: CNAME, CNAMETarget: "restrict.youtube.com"})
+        e.AddRule(Rule{Domain: "m.youtube.com", Type: CNAME, CNAMETarget: "restrict.youtube.com"})
+        e.AddRule(Rule{Domain: "youtubei.googleapis.com", Type: CNAME, CNAMETarget: "restrict.youtube.com"})
+
+        // Pixabay Safe Search
+        e.AddRule(Rule{Domain: "pixabay.com", Type: CNAME, CNAMETarget: "safe.pixabay.com"})
+}
+
+func normalize(d string) string {
+        d = strings.ToLower(strings.TrimSpace(d))
+        d = strings.TrimSuffix(d, ".")
+        return d
 }

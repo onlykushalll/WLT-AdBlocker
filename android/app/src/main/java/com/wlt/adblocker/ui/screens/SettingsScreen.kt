@@ -1,33 +1,30 @@
 package com.wlt.adblocker.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Http
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,196 +34,280 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.wlt.adblocker.data.SettingsExportImport
+import com.wlt.adblocker.vpn.BlockStats
 
+/**
+ * Settings screen.
+ *
+ * Section 1: Smart Cascade layer toggles (DNS / SNI / HTTPS / Scriptlet)
+ * Section 2: Block response segmented buttons (NXDOMAIN / 0.0.0.0 / REFUSED)
+ * Section 3: Upstream DNS selector (Cloudflare / Google / Quad9 / AdGuard)
+ * Section 4: Auto-update blocklists toggle (24h WorkManager)
+ * Section 5: Theme selector (System / Light / Dark)
+ * Section 6: Privacy (no telemetry notice, export/import buttons)
+ * Section 7: About (version, open-source link)
+ *
+ * Toggles write to a (TODO) WltDataStore; for now they're local state only.
+ * The actual VPN service reads these on startup. Writing them requires the
+ * WltDataStore class to exist (Task 40-c's data layer doesn't include it
+ * yet — it has PrefsRepository but only for first-launch + pause). When the
+ * DataStore is wired, the toggles will write through to it.
+ */
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onOpenDnsLatency: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+
+    // Local state — would be backed by DataStore in a fuller implementation.
     var dnsLayer by remember { mutableStateOf(true) }
     var sniLayer by remember { mutableStateOf(false) }
     var httpsLayer by remember { mutableStateOf(false) }
     var scriptletLayer by remember { mutableStateOf(false) }
+    var blockResponse by remember { mutableStateOf("NXDOMAIN") }
+    var upstreamDns by remember { mutableStateOf("cloudflare") }
     var autoUpdate by remember { mutableStateOf(true) }
-    var blockResponse by remember { mutableStateOf(0) } // 0=NXDOMAIN, 1=0.0.0.0, 2=REFUSED
-    var upstream by remember { mutableStateOf(0) } // 0=cloudflare, 1=google, 2=quad9
-    var theme by remember { mutableStateOf(0) } // 0=system, 1=light, 2=dark
+    var theme by remember { mutableStateOf("system") }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    val exportImport = remember { SettingsExportImport(context) }
+    val blockStats = remember { BlockStats() }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            val snap = blockStats.snapshot()
+            val topBlocked = snap.perDomainTop.take(20).map { it.domain to it.count.toInt() }
+            exportImport.exportToUri(
+                uri,
+                SettingsExportImport.ExportStats(
+                    totalBlocked = snap.totalBlocked,
+                    totalAllowed = snap.totalAllowed,
+                    topBlocked = topBlocked,
+                ),
+            )
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) exportImport.importFromUri(uri)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Text("Settings", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+
+        // --- Section 1: Smart Cascade ---
+        SectionCard("Smart Cascade Layers") {
+            LayerToggle("DNS", "Block by domain at resolver level", Icons.Filled.Dns, dnsLayer) { dnsLayer = it }
+            LayerToggle("SNI", "Inspect TLS ClientHello SNI", Icons.Filled.Public, sniLayer) { sniLayer = it }
+            LayerToggle("HTTPS", "MITM trusted connections (CA-gated)", Icons.Filled.Http, httpsLayer) { httpsLayer = it }
+            LayerToggle("Scriptlet", "Inject anti-adblock JS", Icons.Filled.SportsEsports, scriptletLayer) { scriptletLayer = it }
         }
 
-        // Smart Cascade layers
-        item {
-            SettingsSectionCard("Smart Cascade Layers", Icons.Filled.Layers) {
-                LayerToggleRow("DNS Layer", "Block at DNS level — 85-90% of ads/tracker", dnsLayer) { dnsLayer = it }
-                LayerToggleRow("SNI Layer (Phase 2)", "Inspect TLS ClientHello without MITM — catches hardcoded-IP SDKs", sniLayer) { sniLayer = it }
-                LayerToggleRow("HTTPS Layer (Phase 3)", "MITM browsers for URL rules + cosmetics", httpsLayer) { httpsLayer = it }
-                LayerToggleRow("Scriptlet Layer (Phase 3)", "uBlock-style JS injection for anti-adblock + YouTube web", scriptletLayer) { scriptletLayer = it }
+        // --- Section 2: Block response ---
+        SectionCard("Block Response") {
+            Text(
+                text = "What to return for blocked domains. NXDOMAIN is safest (domain doesn't exist); 0.0.0.0 is fastest (immediate connection failure); REFUSED is most explicit.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SegmentedButton("NXDOMAIN", blockResponse == "NXDOMAIN") { blockResponse = "NXDOMAIN" }
+                SegmentedButton("0.0.0.0", blockResponse == "0.0.0.0") { blockResponse = "0.0.0.0" }
+                SegmentedButton("REFUSED", blockResponse == "REFUSED") { blockResponse = "REFUSED" }
             }
         }
 
-        item {
-            SettingsSectionCard("Block Response", Icons.Filled.Block) {
-                Text("What to return for blocked queries:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                SingleChoiceSegmentedButtonRow {
-                    val options = listOf("NXDOMAIN", "0.0.0.0", "REFUSED")
-                    options.forEachIndexed { i, label ->
-                        SegmentedButton(
-                            selected = blockResponse == i,
-                            onClick = { blockResponse = i },
-                            shape = SegmentedButtonDefaults.itemShape(i, options.size)
-                        ) { Text(label, fontSize = 11.sp) }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when (blockResponse) {
-                        0 -> "NXDOMAIN: apps see 'host not found' (default, most compatible)"
-                        1 -> "0.0.0.0: null IP sinkhole (AdAway-style, some apps prefer this)"
-                        else -> "REFUSED: apps see 'not allowed' (HostShield-style)"
-                    },
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-
-        item {
-            SettingsSectionCard("Upstream DNS", Icons.Filled.Dns) {
-                Text("Encrypted DNS resolver for non-blocked queries:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                SingleChoiceSegmentedButtonRow {
-                    val options = listOf("Cloudflare", "Google", "Quad9")
-                    options.forEachIndexed { i, label ->
-                        SegmentedButton(
-                            selected = upstream == i,
-                            onClick = { upstream = i },
-                            shape = SegmentedButtonDefaults.itemShape(i, options.size)
-                        ) { Text(label, fontSize = 11.sp) }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when (upstream) {
-                        0 -> "Cloudflare 1.1.1.1 — fast, privacy-respecting (default)"
-                        1 -> "Google 8.8.8.8 — ubiquitous, fast"
-                        else -> "Quad9 9.9.9.9 — built-in malware blocking"
-                    },
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-
-        item {
-            SettingsSectionCard("Blocklist Updates", Icons.Filled.Update) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.padding(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-update every 24h", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("Background refresh of all enabled lists", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = autoUpdate, onCheckedChange = { autoUpdate = it })
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("Last update: never (lists not yet loaded)", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
-            }
-        }
-
-        item {
-            SettingsSectionCard("Theme", Icons.Filled.Palette) {
-                SingleChoiceSegmentedButtonRow {
-                    val options = listOf("System", "Light", "Dark")
-                    options.forEachIndexed { i, label ->
-                        SegmentedButton(
-                            selected = theme == i,
-                            onClick = { theme = i },
-                            shape = SegmentedButtonDefaults.itemShape(i, options.size)
-                        ) { Text(label, fontSize = 11.sp) }
-                    }
+        // --- Section 3: Upstream DNS ---
+        SectionCard("Upstream DNS") {
+            Text(
+                text = "Used for forwarding allowed queries. DoH-first for privacy (RFC 8484), with UDP fallback.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (name in listOf("cloudflare", "google", "quad9", "adguard")) {
+                    SegmentedButton(
+                        label = name.replaceFirstChar { it.uppercase() },
+                        selected = upstreamDns == name,
+                    ) { upstreamDns = name }
                 }
             }
-        }
-
-        item {
-            SettingsSectionCard("Privacy & Trust", Icons.Filled.Security) {
-                Text("WLT is designed to be trustworthy by architecture, not by policy:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                PrivacyBullet("All filtering on-device — no cloud dependency")
-                PrivacyBullet("Zero telemetry — no data leaves your device")
-                PrivacyBullet("Open source (GPL-3.0) — every line auditable")
-                PrivacyBullet("Minimal permissions — VPN + notification only")
-                PrivacyBullet("No account required — no signup, no email")
+            Spacer(modifier = Modifier.size(8.dp))
+            OutlinedButton(onClick = onOpenDnsLatency) {
+                Text("Test latency →")
             }
         }
 
-        item {
-            Card(
+        // --- Section 4: Auto-update ---
+        SectionCard("Auto-Update") {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.padding(10.dp))
-                    Column {
-                        Text("WLT-Adblocker", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("v0.1.0 Phase 1 · Go core 1.26.5 · Kotlin/Compose", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
-                        Text("Built from 35+ adblocker analyses · 300+ features synthesized", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Auto-update blocklists",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Downloads fresh OISD/HaGeZi lists every 24h via WorkManager.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                Switch(checked = autoUpdate, onCheckedChange = { autoUpdate = it })
             }
+        }
+
+        // --- Section 5: Theme ---
+        SectionCard("Theme") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SegmentedButton("System", theme == "system") { theme = "system" }
+                SegmentedButton("Light", theme == "light") { theme = "light" }
+                SegmentedButton("Dark", theme == "dark") { theme = "dark" }
+            }
+        }
+
+        // --- Section 6: Privacy ---
+        SectionCard("Privacy") {
+            Text(
+                text = "WLT collects no analytics, no crash reports, no telemetry. " +
+                    "Your settings stay on your device. Export them to a JSON " +
+                    "file if you want a backup or want to transfer to another device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    exportLauncher.launch("wlt-settings.json")
+                }) { Text("Export") }
+                OutlinedButton(onClick = {
+                    importLauncher.launch(arrayOf("application/json"))
+                }) { Text("Import") }
+            }
+        }
+
+        // --- Section 7: About ---
+        SectionCard("About") {
+            Text(
+                text = "WLT-Adblocker v1.0.0",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Open-source local VPN ad blocker for Android.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "No root. No cloud. No telemetry.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsSectionCard(title: String, icon: ImageVector, content: @Composable () -> Unit) {
+private fun SectionCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(12.dp),
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.padding(6.dp))
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-            Spacer(Modifier.height(10.dp))
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
             content()
         }
     }
 }
 
 @Composable
-private fun LayerToggleRow(name: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun LayerToggle(
+    name: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (checked) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
 @Composable
-private fun PrivacyBullet(text: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.padding(6.dp))
-        Text(text, fontSize = 12.sp)
+private fun SegmentedButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        colors = if (selected) {
+            ButtonDefaults.outlinedButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+        } else {
+            ButtonDefaults.outlinedButtonColors()
+        },
+    ) {
+        Text(
+            text = label,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
     }
 }

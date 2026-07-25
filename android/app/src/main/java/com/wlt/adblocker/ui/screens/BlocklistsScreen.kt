@@ -1,164 +1,305 @@
 package com.wlt.adblocker.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.CurrencyBitcoin
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.TrackChanges
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
-data class BlocklistEntry(
+/**
+ * Blocklists gallery.
+ *
+ * Shows the 10 blocklist categories WLT ships with: game ads, YouTube,
+ * Spotify, social, crypto-mining, smart-TV, trackers, passthrough (allow),
+ * CNAME-cloak, and a general "external" tier. Each card has:
+ *  - Category icon (varies by category — see [categoryIcon])
+ *  - Source line (where the rules come from)
+ *  - Tier warning for disruptive lists (e.g., smart-tv ads may break some
+ *    streaming apps)
+ *  - Toggle switch (visual only — actual enable/disable is handled by
+ *    RuleStore / BlocklistManager in a future task)
+ *
+ * Impact simulator teaser at the bottom: "Coming soon — simulate what would
+ * change if you turned on each list."
+ */
+@Composable
+fun BlocklistsScreen() {
+    // Local toggle state — purely visual at the moment. Toggling doesn't
+    // yet write to RuleStore or BlocklistManager because those APIs aren't
+    // wired per-blocklist yet (BlocklistManager loads ALL bundled assets at
+    // once; per-file toggle is a future enhancement).
+    val toggleState = remember { mutableStateMapOf<String, Boolean>() }
+    for (list in BLOCKLISTS) {
+        // Defaults: game ads, trackers, cname-cloak on; passthrough on
+        // (it's an allowlist); others off.
+        toggleState[list.id] = toggleState[list.id] ?: list.defaultOn
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(
+            text = "Blocklists",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(4.dp))
+        Text(
+            text = "Tap to toggle. Changes take effect on next VPN restart.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(BLOCKLISTS) { list ->
+                BlocklistCard(
+                    list = list,
+                    isOn = toggleState[list.id] ?: list.defaultOn,
+                    onToggle = { toggleState[list.id] = it },
+                )
+            }
+            item { ImpactSimulatorTeaser() }
+        }
+    }
+}
+
+private data class BlocklistEntry(
+    val id: String,
     val name: String,
     val description: String,
-    val category: String,
-    val domainCount: String,
-    val enabled: Boolean = false,
+    val source: String,
+    val icon: ImageVector,
     val tierWarning: String? = null,
-    val source: String = "Bundled" // "Bundled" or URL host
+    val isAllowlist: Boolean = false,
+    val defaultOn: Boolean = false,
+)
+
+private val BLOCKLISTS = listOf(
+    BlocklistEntry(
+        id = "game-ads",
+        name = "Game Ad SDKs",
+        description = "12 game ad networks (AdMob, Unity, AppLovin, ironSource, Chartboost, Vungle, Meta, AdColony, Mintegral, Fyber, Tapjoy, InMobi).",
+        source = "WLT-curated · ~150 domains",
+        icon = Icons.Filled.SportsEsports,
+        defaultOn = true,
+    ),
+    BlocklistEntry(
+        id = "youtube-ads",
+        name = "YouTube Ads",
+        description = "Youtube ad-serving domains. Blocks web YouTube ads; does NOT block YouTube app SSAI ads (cert-pinned).",
+        source = "WLT-curated · ~80 domains",
+        icon = Icons.Filled.Tv,
+        tierWarning = "May cause YouTube app to misbehave — recommend ReVanced for the app.",
+    ),
+    BlocklistEntry(
+        id = "spotify-ads",
+        name = "Spotify Ads",
+        description = "Spotify ad-serving endpoints. Free-tier only; doesn't bypass premium.",
+        source = "WLT-curated · ~20 domains",
+        icon = Icons.Filled.MusicNote,
+        tierWarning = "Spotify app may show 'no internet' on free tier when blocked.",
+    ),
+    BlocklistEntry(
+        id = "social-ads",
+        name = "Social Ad Trackers",
+        description = "Facebook, Twitter, TikTok, Instagram, Snapchat ad pixels and tracking.",
+        source = "WLT-curated · ~35 domains",
+        icon = Icons.Filled.Public,
+    ),
+    BlocklistEntry(
+        id = "crypto-mining",
+        name = "Crypto Mining",
+        description = "In-browser miners (Coinhive, Crypto-Loot, etc.) and known mining pool endpoints.",
+        source = "WLT-curated · ~50 domains",
+        icon = Icons.Filled.CurrencyBitcoin,
+    ),
+    BlocklistEntry(
+        id = "smart-tv-ads",
+        name = "Smart TV Ads",
+        description = "Roku, Samsung Tizen, LG WebOS, Android TV ad/tracking endpoints.",
+        source = "WLT-curated · ~60 domains",
+        icon = Icons.Filled.Tv,
+        tierWarning = "May break smart-TV UIs that depend on ad SDKs for navigation.",
+    ),
+    BlocklistEntry(
+        id = "trackers",
+        name = "Trackers",
+        description = "Cross-site trackers, fingerprinting, analytics (Google Analytics, AppsFlyer, Adjust, Branch).",
+        source = "WLT-curated · ~100 domains",
+        icon = Icons.Filled.TrackChanges,
+        defaultOn = true,
+    ),
+    BlocklistEntry(
+        id = "passthrough",
+        name = "Passthrough (Allowlist)",
+        description = "Banking, government, critical infrastructure. These domains are NEVER blocked.",
+        source = "WLT-curated · ~70 domains",
+        icon = Icons.Filled.Verified,
+        isAllowlist = true,
+        defaultOn = true,
+    ),
+    BlocklistEntry(
+        id = "cname-cloak",
+        name = "CNAME Cloaking",
+        description = "Tracker domains hidden behind first-party CNAMEs (Fullstory, Optimizely, Criteo, etc.).",
+        source = "WLT-curated · ~18 domains",
+        icon = Icons.Filled.Link,
+        defaultOn = true,
+    ),
+    BlocklistEntry(
+        id = "external-oisd",
+        name = "OISD Big (External)",
+        description = "Community-maintained comprehensive blocklist. Auto-updated every 24h via WorkManager.",
+        source = "big.oisd.nl · ~150k domains",
+        icon = Icons.Filled.Public,
+        tierWarning = "Large list — first load takes a few seconds. May over-block.",
+    ),
 )
 
 @Composable
-fun BlocklistsScreen() {
-    val lists = remember {
-        mutableStateListOf(
-            BlocklistEntry("WLT Game Ads", "Curated mobile game ad SDK domains — AdMob, Unity, AppLovin, ironSource, Chartboost, Vungle, Meta, +5 more", "game-ads", "150+", enabled = true, source = "Bundled"),
-            BlocklistEntry("WLT Passthrough", "Banking, government, critical infra — never blocked (Zero-Trust Passthrough)", "allow", "80+", enabled = true, source = "Bundled"),
-            BlocklistEntry("WLT CNAME Cloak", "Tracker CNAME targets — detects disguised tracking", "cname", "25+", enabled = true, source = "Bundled"),
-            BlocklistEntry("OISD Big", "Curated ads/trackers — low breakage, broad coverage", "ads", "~450K", enabled = true, source = "oisd.nl"),
-            BlocklistEntry("AdGuard DNS Filter", "AdGuard's flagship DNS filter (ABP format)", "ads", "~90K", enabled = true, source = "adguardteam.github.io"),
-            BlocklistEntry("HaGeZi Normal", "Balanced blocking — good coverage, low breakage", "ads", "~180K", enabled = true, source = "github.com/hagezi"),
-            BlocklistEntry("HaGeZi Pro", "More aggressive — may break some sites", "ads", "~280K", tierWarning = "Aggressive", source = "github.com/hagezi"),
-            BlocklistEntry("HaGeZi Pro++", "Maximum blocking — will break some apps", "ads", "~400K", tierWarning = "Maximum", source = "github.com/hagezi"),
-            BlocklistEntry("AdGuard Tracking", "Tracking/analytics domains", "trackers", "~50K", source = "adguardteam.github.io"),
-            BlocklistEntry("EasyPrivacy", "Tracking/analytics (EasyList family)", "trackers", "~30K", source = "easylist.to"),
-            BlocklistEntry("StevenBlack Unified", "Unified hosts from multiple sources", "ads", "~120K", source = "github.com/StevenBlack"),
-            BlocklistEntry("MalwareDomainList", "Known malware domains", "malware", "~15K", source = "malwaredomainlist.com"),
-            BlocklistEntry("URLhaus Malware", "Active malware URLs (abuse.ch)", "malware", "~5K", source = "urlhaus.abuse.ch"),
-            BlocklistEntry("NextDNS Cryptojacking", "Cryptocurrency mining domains", "crypto", "~10K", source = "github.com/hagezi"),
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+private fun BlocklistCard(
+    list: BlocklistEntry,
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
     ) {
-        item {
-            Text("Blocklist Gallery", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "${lists.count { it.enabled }} enabled · ${lists.sumOf { it.domainCount.dropLastWhile { !it.isDigit() }.ifEmpty { "0" }.toIntOrNull() ?: 0 }}} domains (approx)",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-        items(lists) { entry ->
-            BlocklistCard(entry) { newVal ->
-                val idx = lists.indexOf(entry)
-                lists[idx] = entry.copy(enabled = newVal)
-            }
-        }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (list.isAllowlist) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.size(40.dp),
             ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.padding(8.dp))
-                    Column {
-                        Text("Blocklist Impact Simulator", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Preview what enabling a list will block before applying — coming in Phase 2", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = list.icon,
+                        contentDescription = null,
+                        tint = if (list.isAllowlist) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = list.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (list.isAllowlist) {
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(
+                                text = "ALLOW",
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = list.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = list.source,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                if (list.tierWarning != null) {
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            text = "⚠ ${list.tierWarning}",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                     }
                 }
             }
+            Switch(checked = isOn, onCheckedChange = onToggle)
         }
     }
 }
 
 @Composable
-private fun BlocklistCard(entry: BlocklistEntry, onToggle: (Boolean) -> Unit) {
-    val categoryIcon: ImageVector = when (entry.category) {
-        "game-ads" -> Icons.Filled.SportsEsports
-        "allow" -> Icons.Filled.VerifiedUser
-        "cname" -> Icons.Filled.Security
-        "malware" -> Icons.Filled.WarningAmber
-        else -> Icons.Filled.Block
-    }
-    val categoryColor: Color = when (entry.category) {
-        "game-ads" -> MaterialTheme.colorScheme.tertiary
-        "allow" -> MaterialTheme.colorScheme.secondary
-        "cname" -> MaterialTheme.colorScheme.primary
-        "malware" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.outline
-    }
-
+private fun ImpactSimulatorTeaser() {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(categoryIcon, contentDescription = entry.category, tint = categoryColor, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.padding(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(entry.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    if (entry.tierWarning != null) {
-                        Spacer(Modifier.padding(4.dp))
-                        BadgedBox(badge = {
-                            Badge(containerColor = MaterialTheme.colorScheme.error) {
-                                Text(entry.tierWarning, fontSize = 9.sp)
-                            }
-                        }) {}
-                    }
-                }
-                Text(entry.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(entry.category, fontSize = 10.sp, color = categoryColor, fontWeight = FontWeight.Medium)
-                    Text(" · ", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
-                    Text("${entry.domainCount} domains", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
-                    Text(" · ", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
-                    Text(entry.source, fontSize = 10.sp, color = MaterialTheme.colorScheme.outline, maxLines = 1)
-                }
-            }
-            Spacer(Modifier.padding(8.dp))
-            Switch(checked = entry.enabled, onCheckedChange = onToggle)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "Impact Simulator (coming soon)",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                text = "See exactly which of your installed apps would be " +
+                    "affected by turning each list on or off — before you " +
+                    "commit the change.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
         }
     }
 }

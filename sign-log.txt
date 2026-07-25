@@ -1,0 +1,4 @@
+Using cert: CN=WLT-Adblocker Code Signing
+Signed gobind.exe : Valid
+Signed gomobile.exe : Valid
+SIGN_GOBIN_DONE

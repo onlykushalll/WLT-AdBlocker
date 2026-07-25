@@ -1,261 +1,293 @@
 package com.wlt.adblocker.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.wlt.adblocker.vpn.DnsResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
 
-data class DnsServerResult(
-    val name: String,
-    val provider: String,
-    val dohUrl: String,
-    val udpIp: String,
-    var latencyMs: Long? = null,
-    var status: TestStatus = TestStatus.IDLE
-)
-
-enum class TestStatus { IDLE, TESTING, SUCCESS, FAILED }
-
+/**
+ * DNS latency tester.
+ *
+ * Sends a real UDP DNS query for "google.com" to each of the 4 upstream
+ * providers (Cloudflare, Google, Quad9, AdGuard) and measures round-trip
+ * time in milliseconds.
+ *
+ * Color coding:
+ *  - < 50ms: green (excellent)
+ *  - 50ms+: amber (acceptable)
+ *  - failed: red
+ *
+ * Auto-tests on screen load and on demand via the "Re-test" button.
+ *
+ * Note: this measures raw UDP DNS latency, NOT DoH (HTTPS) latency. DoH
+ * adds ~50-150ms of TLS handshake overhead on the first request and
+ * ~5-20ms on subsequent requests (HTTP/2 connection reuse). The VPN
+ * uses DoH-first for privacy, but raw UDP is what the latency test
+ * measures because it's a cleaner signal.
+ */
 @Composable
 fun DnsLatencyScreen() {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val servers = remember {
-        mutableStateListOf(
-            DnsServerResult("Cloudflare", "1.1.1.1", "https://cloudflare-dns.com/dns-query", "1.1.1.1"),
-            DnsServerResult("Google", "8.8.8.8", "https://dns.google/dns-query", "8.8.8.8"),
-            DnsServerResult("Quad9", "9.9.9.9", "https://dns.quad9.net/dns-query", "9.9.9.9"),
-            DnsServerResult("AdGuard", "94.140.14.14", "https://dns.adguard-dns.com/dns-query", "94.140.14.14"),
-        )
-    }
+    val dnsResolver = remember { DnsResolver(context) }
+    var results by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
     var testing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        // Auto-test on first load
-        testAll(servers, scope) { testing = it }
+        runTests(dnsResolver, onTesting = { testing = it }) { results = it }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("DNS Server Latency", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "Test upstream DNS resolver performance. Lower latency = faster browsing.",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Button(
-            onClick = { testAll(servers, scope) { testing = it } },
-            enabled = !testing,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (testing) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                Spacer(Modifier.width(8.dp))
-                Text("Testing...")
-            } else {
-                Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Run Latency Test")
-            }
-        }
-
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(servers) { server ->
-                DnsServerCard(server)
-            }
-        }
-
-        // Info card
-        Card(
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text("How it works", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text("Sends a DNS query for 'google.com' via UDP and measures round-trip time. DoH (HTTPS) adds ~20-50ms overhead but is encrypted.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column {
+                Text(
+                    text = "DNS Latency",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    text = "UDP DNS round-trip per upstream",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Button(
+                onClick = {
+                    scope.launch {
+                        runTests(dnsResolver, onTesting = { testing = it }) { results = it }
+                    }
+                },
+                enabled = !testing,
+            ) {
+                if (testing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text("Re-test")
                 }
             }
         }
+        Spacer(modifier = Modifier.size(12.dp))
+
+        for (upstream in DnsResolver.UPSTREAMS) {
+            val latency = results[upstream.name]
+            ProviderCard(
+                name = upstream.name.replaceFirstChar { it.uppercase() },
+                ip = upstream.udpAddress,
+                latencyMs = latency,
+                testing = testing && latency == null,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+        }
+
+        Spacer(modifier = Modifier.size(8.dp))
+        InfoCard()
     }
 }
 
-@Composable
-private fun DnsServerCard(server: DnsServerResult) {
-    val statusColor = when (server.status) {
-        TestStatus.SUCCESS -> if (server.latencyMs != null && server.latencyMs!! < 50) MaterialTheme.colorScheme.primary
-                              else MaterialTheme.colorScheme.secondary
-        TestStatus.FAILED -> MaterialTheme.colorScheme.error
-        TestStatus.TESTING -> MaterialTheme.colorScheme.tertiary
-        TestStatus.IDLE -> MaterialTheme.colorScheme.outline
+private suspend fun runTests(
+    resolver: DnsResolver,
+    onTesting: (Boolean) -> Unit,
+    onResults: (Map<String, Long>) -> Unit,
+) {
+    onTesting(true)
+    val out = LinkedHashMap<String, Long>()
+    for (upstream in DnsResolver.UPSTREAMS) {
+        // Null-check the resolver — guarding against a misconfigured device.
+        val latency = withContext(Dispatchers.IO) {
+            try {
+                resolver.measureUdpLatency(upstream)
+            } catch (e: Exception) {
+                -1L
+            }
+        }
+        out[upstream.name] = latency
+        onResults(out.toMap()) // incremental update so user sees results come in
     }
+    onTesting(false)
+}
 
+@Composable
+private fun ProviderCard(
+    name: String,
+    ip: String,
+    latencyMs: Long?,
+    testing: Boolean,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (server.status == TestStatus.SUCCESS)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.08f)
-            else MaterialTheme.colorScheme.surface
-        )
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                when (server.status) {
-                    TestStatus.TESTING -> Icons.Filled.Cloud
-                    TestStatus.SUCCESS -> Icons.Filled.Cloud
-                    TestStatus.FAILED -> Icons.Filled.CloudOff
-                    TestStatus.IDLE -> Icons.Filled.Dns
-                },
+                imageVector = Icons.Filled.Dns,
                 contentDescription = null,
-                tint = statusColor,
-                modifier = Modifier.size(28.dp)
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(server.name, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text(server.provider, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = ip,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            when (server.status) {
-                TestStatus.TESTING -> {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = statusColor)
-                }
-                TestStatus.SUCCESS -> {
-                    Text(
-                        "${server.latencyMs}ms",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = statusColor,
-                        fontFamily = FontFamily.Monospace
+            when {
+                latencyMs == null && testing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
                     )
                 }
-                TestStatus.FAILED -> {
-                    Text("Failed", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                latencyMs == null -> {
+                    Text(
+                        text = "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
                 }
-                TestStatus.IDLE -> {
-                    Text("—", fontSize = 16.sp, color = MaterialTheme.colorScheme.outline)
+                latencyMs < 0 -> {
+                    StatusBadge(
+                        icon = Icons.Filled.Close,
+                        text = "Failed",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                latencyMs < 50 -> {
+                    StatusBadge(
+                        icon = Icons.Filled.CheckCircle,
+                        text = "${latencyMs}ms",
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                else -> {
+                    StatusBadge(
+                        icon = Icons.Filled.Schedule,
+                        text = "${latencyMs}ms",
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
                 }
             }
         }
-        if (server.status == TestStatus.TESTING) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = statusColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        }
     }
 }
 
-private fun testAll(
-    servers: MutableList<DnsServerResult>,
-    scope: kotlinx.coroutines.CoroutineScope,
-    onTestingChange: (Boolean) -> Unit = {}
+@Composable
+private fun StatusBadge(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    color: Color,
 ) {
-    scope.launch {
-        onTestingChange(true)
-        for (i in servers.indices) {
-            servers[i] = servers[i].copy(status = TestStatus.TESTING)
-            val latency = withContext(Dispatchers.IO) { testUdpLatency(servers[i].udpIp) }
-            servers[i] = servers[i].copy(
-                latencyMs = latency,
-                status = if (latency != null) TestStatus.SUCCESS else TestStatus.FAILED
+    Surface(
+        color = color.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = color,
+                fontWeight = FontWeight.Bold,
             )
         }
-        onTestingChange(false)
     }
 }
 
-private fun testUdpLatency(ip: String): Long? {
-    return try {
-        // Build a DNS query for google.com (A record)
-        val query = buildDnsQuery("google.com")
-        val socket = DatagramSocket()
-        socket.soTimeout = 5000
-        val addr = InetAddress.getByName(ip)
-        val reqPacket = DatagramPacket(query, query.size, addr, 53)
-
-        val start = System.nanoTime()
-        socket.send(reqPacket)
-        val respBuf = ByteArray(1024)
-        val respPacket = DatagramPacket(respBuf, respBuf.size)
-        socket.receive(respPacket)
-        val elapsed = System.nanoTime() - start
-        socket.close()
-
-        elapsed / 1_000_000 // nanos to millis
-    } catch (e: Exception) {
-        null
+@Composable
+private fun InfoCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "UDP vs DoH latency",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(modifier = Modifier.size(4.dp))
+            Text(
+                text = "This test measures raw UDP DNS latency (one packet " +
+                    "each way). WLT uses DoH (DNS-over-HTTPS) by default " +
+                    "for privacy, which adds ~5-20ms per query after the " +
+                    "initial TLS handshake. Use these numbers as a relative " +
+                    "comparison between providers, not as an absolute " +
+                    "prediction of WLT's query time.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
     }
-}
-
-private fun buildDnsQuery(domain: String): ByteArray {
-    val buf = mutableListOf<Byte>()
-    // Header: ID=1, flags=0x0100 (RD=1), QDCOUNT=1
-    buf.addAll(listOf(0x00, 0x01).map { it.toByte() })
-    buf.addAll(listOf(0x01, 0x00).map { it.toByte() })
-    buf.addAll(listOf(0x00, 0x01).map { it.toByte() })
-    buf.addAll(listOf(0x00, 0x00).map { it.toByte() })
-    buf.addAll(listOf(0x00, 0x00).map { it.toByte() })
-    buf.addAll(listOf(0x00, 0x00).map { it.toByte() })
-    // QNAME
-    for (label in domain.split(".")) {
-        buf.add(label.length.toByte())
-        buf.addAll(label.map { it.code.toByte() })
-    }
-    buf.add(0)
-    // QTYPE=A (1), QCLASS=IN (1)
-    buf.addAll(listOf(0x00, 0x01).map { it.toByte() })
-    buf.addAll(listOf(0x00, 0x01).map { it.toByte() })
-    return buf.toByteArray()
 }

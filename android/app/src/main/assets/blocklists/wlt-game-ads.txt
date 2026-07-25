@@ -1,123 +1,277 @@
-# WLT Game Ads Blocklist + DoH Bypass Prevention
-# Format: one domain per line. Wildcards via *.example.com.
+# ============================================================
+# WLT Game Ads Blocklist
+# ------------------------------------------------------------
+# Mobile game SDK ad networks + DoH bypass prevention domains.
+# Built from the 12-SDK Game Ad Intelligence Engine (Task 1-5)
+# plus the 22 DoH bypass prevention domains added in Task 20.
+#
+# Categories:
+#   1. Google AdMob / DoubleClick
+#   2. Unity Ads
+#   3. AppLovin
+#   4. ironSource
+#   5. Chartboost
+#   6. Vungle
+#   7. Meta Audience Network
+#   8. AdColony
+#   9. Mintegral
+#  10. Fyber
+#  11. Tapjoy
+#  12. InMobi
+#  13. DoH bypass prevention (22)
+# ============================================================
 
-# === Google AdMob / AdSense / DoubleClick ===
-googleads.g.doubleclick.net
+# === GOOGLE ADMOB / DOUBLECLICK ===
 pagead2.googlesyndication.com
-googleads4.g.doubleclick.net
-adclick.g.doubleclick.net
-ad.doubleclick.net
+googleads.g.doubleclick.net
+pubads.g.doubleclick.net
 adservice.google.com
+adservice.google.com.mm
+adservice.google.com.hk
+adservice.google.co.jp
+adservice.google.co.kr
+adservice.google.com.tw
+adservice.google.com.sg
+adservice.google.com.au
+adservice.google.co.uk
+adservice.google.de
+adservice.google.fr
+adservice.google.ca
+adservice.google.it
+adservice.google.com.br
+adservice.google.com.mx
+adservice.google.com.ar
+ad.doubleclick.net
+adx.g.doubleclick.net
+googleads4.g.doubleclick.net
+s0.2mdn.net
+s1.2mdn.net
+s2.2mdn.net
 pubads.g.doubleclick.net
 admob.google.com
+media.admob.com
+c.admob.com
+r.admob.com
+e.admob.com
+googleads.g.doubleclick.net
 ads.google.com
-googlesyndication.com
-googleadservices.com
-googletagservices.com
-doubleclick.net
-*.doubleclick.net
-*.googlesyndication.com
-*.googleadservices.com
+fpad.google.com
+securepubads.g.doubleclick.net
+adx-svc.demdex.net
 
-# === Unity Ads ===
+# === UNITY ADS ===
+ads.unity3d.com
 unityads.unity3d.com
-ads.unityads.unity3d.com
+ppi.unity3d.com
+cdn.unityads.unity3d.com
+unityads.unityads.unity3d.com
+data.unityads.unity3d.com
+thindervs.unity3d.com
 config.unityads.unity3d.com
-cdp.cloud.unity3d.com
-perf-events.cloud.unity3d.com
-cdn.unity.com
+web.unityads.unity3d.com
+cdn-ape.unityads.unity3d.com
 
-# === AppLovin ===
-applovin.com
+# === APPLOVIN ===
+pdn.applovin.com
 rt.applovin.com
 ms.applovin.com
-vid.applovin.com
+img.applovin.com
 d.applovin.com
-pdn.applovin.com
-applovin-thirdparty.com
+a.applovin.com
+vid.applovin.com
+viddeo.applovin.com
+cdn.applovin.com
+ms-cdn.applovin.com
+vcdn.applovin.com
+p1.applovin.com
+p2.applovin.com
 
-# === ironSource ===
-ironsrc.com
+# === IRONSOURCE ===
 api.ironsrc.com
+secure.ironsrc.com
 events.ironsrc.com
-cdn.ironsrc.com
-unity.ironsrc.com
+controller.ironsrc.com
+ss-api.ironsrc.com
+e.ironsrc.com
+external-api.ironsrc.com
+imp.ironsrc.com
+track.ironsrc.com
 
-# === Chartboost ===
-chartboost.com
+# === CHARTBOOST ===
 live.chartboost.com
+da.chartboost.com
+impressions.chartboost.com
 api.chartboost.com
-charts.chartboost.com
+hello.chartboost.com
+da.chartboost.com
+ss.chartboost.com
+cdn.chartboost.com
+watch.chartboost.com
 
-# === Vungle ===
-vungle.com
+# === VUNGLE ===
 api.vungle.com
 events.vungle.com
+mdn.vungle.com
+assets.vungle.com
 cdn.vungle.com
-logger.vungle.com
+reports.vungle.com
+static.vungle.com
+s.vungle.com
+wv.vungle.com
 
-# === Meta Audience Network ===
-an.facebook.com
+# === META AUDIENCE NETWORK ===
+grapheneapps.facebook.com
 ads.facebook.com
-fb-analytics.com
+graph.facebook.com
+an.facebook.com
+fbcdn-creative-a.akamaihd.net
+ads.facebook.com
+developers.facebook.com
 
-# === AdColony ===
-adcolony.com
-ads.adcolony.com
-androidads.adcolony.com
-cdn.adcolony.com
+# === ADCOLONY ===
+adc3-launch.adcolony.com
+cdn4.adcolony.com
+cdn2.adcolony.com
+assets.adcolony.com
+adc-download.adcolony.com
+hpub.adcolony.com
+crtn.adcolony.com
+phunq2.adcolony.com
 
-# === Mintegral ===
-mintegral.com
+# === MINTEGRAL ===
 api.mintegral.com
 cdn.mintegral.com
-adsdk.mintegral.com
+api-adsnative.mintegral.com
+api-mtk.mintegral.com
+cdn-ms.mintegral.com
+im.mintegral.com
+rt.mintegral.com
+sdk.mintegral.com
 
-# === Fyber ===
-fyber.com
-engine.fyber.com
+# === FYBER ===
 api.fyber.com
+ads.fyber.com
+engine.fyber.com
 cdn.fyber.com
+register.fyber.com
+rp.fyber.com
+logs.fyber.com
+daichao.fyber.com
 
-# === Tapjoy ===
-tapjoy.com
-api.tapjoy.com
+# === TAPJOY ===
 connect.tapjoy.com
+placements.tapjoy.com
+ws.tapjoy.com
+mothership.tapjoy.com
+events.tapjoy.com
+cdn.tapjoy.com
+robots.tapjoy.com
 ads.tapjoy.com
+gsm.tapjoy.com
 
-# === InMobi ===
-inmobi.com
+# === INMOBI ===
 api.inmobi.com
-cdn.inmobi.com
-i.l.inmobi.com
+i.w.inmobi.com
+c.w.inmobi.com
+adserv.inmobi.com
+cmp.inmobi.com
+sdkm.inmobi.com
+fmsdk.inmobi.com
+config.inmobi.com
+impression.inmobi.com
+rbb.inmobi.com
 
-# === Attribution/analytics SDKs ===
-appsflyer.com
-events.appsflyer.com
-api.appsflyer.com
-adjust.com
-app.adjust.com
-kochava.com
-branch.io
-api.branch.io
-
-# === DoH Bypass Prevention ===
-# Apps can hardcode DoH endpoints to bypass DNS filtering.
-# Block these to prevent circumvention of WLT's DNS layer.
+# === DOH BYPASS PREVENTION (22 domains) ===
+# Apps hardcode these DoH endpoints to bypass the local DNS sinkhole.
+# Block at the DNS layer so they cannot tunnel queries out.
 dns.google
 cloudflare-dns.com
+dns.cloudflare.com
 dns.quad9.net
-doh.opendns.com
 dns.adguard.com
-dns.dns-over-https.com
-doh.dns-over-https.com
-doh.pub
-dns.alidns.com
-commonstar.dns-os.dnsstar.com
-doh.xfinity.com
-dnsnext.dnspod.cn
-doh-1.seby.io
-doh-2.seby.io
+dns.mullvad.net
+dns.nextdns.io
+doh.opendns.com
+dns11.quad9.net
+dns.dnscrypt.ca
 doh.dns.sb
+doh-de.bladns.com
+dns.rubyfish.cn
+doh.xfinity.com
+dnsotls-e.ns.aliyun.com
+doh.pub
+doh.360.cn
+dns.commonshost.com
+doh-fi.bladns.com
+dns.google.com
+dns1.scientificlinux.org
+doh.powerdns.org
+
+# === EXPANDED DOH BYPASS PREVENTION (2025) ===
+# Block all known DoH/ODoH providers to prevent apps bypassing VPN DNS
+dns.controld.com
+doh.cleanbrowsing.org
 dnsforge.de
-doh.dnsforge.de
+doh.applied-privacy.net
+doh.captnemo.in
+doh.42l.fr
+doh.tiar.app
+doh.dnslookup.org
+doh-li.coxlab.net
+doh.crypto.sx
+doh.securedns.eu
+doh.aaflalo.me
+doh.dnsforfamily.com
+doh.dot-sandor.hu
+doh.smartyqian.cn
+odoh.cloudflare-dns.com
+odoh.nextdns.io
+odoh.dns0.eu
+
+# === NEW GAME AD SDKS (2025) ===
+# CAS.AI
+cas.ai
+api.cas.ai
+cdn.cas.ai
+tracking.cas.ai
+analytics.cas.ai
+sdk.cas.ai
+
+# Appodeal
+appodeal.com
+api.appodeal.com
+cdn.appodeal.com
+rt.appodeal.com
+analytics.appodeal.com
+
+# AdTiming
+adtiming.com
+api.adtiming.com
+
+# AdMost
+admost.com
+api.admost.com
+
+# SuperAwesome (kids)
+superawesome.com
+api.superawesome.com
+
+# StartApp
+startapp.com
+api.startapp.com
+cdn.startapp.com
+
+# AppNext
+appnext.com
+api.appnext.com
+
+# Digital Turbine
+digitalturbine.com
+api.digitalturbine.com
+
+# === PHASE 8d: ECH CONFIG BLOCKING ===
+# Block domains that serve ECH (Encrypted Client Hello) configs.
+# Without the config, clients fall back to regular TLS (visible SNI).
+# This is a privacy regression but enables SNI-based ad blocking.
+cloudflare-ech.com
+crypto.cloudflare.com

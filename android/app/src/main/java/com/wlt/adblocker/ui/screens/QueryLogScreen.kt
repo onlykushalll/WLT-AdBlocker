@@ -8,31 +8,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,107 +38,108 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.wlt.adblocker.data.QueryLog
-import com.wlt.adblocker.data.QueryLogEntry
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class QueryFilter { ALL, BLOCKED, ALLOWED }
+private enum class QueryFilter(val label: String) {
+    ALL("All"),
+    BLOCKED("Blocked"),
+    ALLOWED("Allowed"),
+}
 
+/**
+ * Query log screen.
+ *
+ * Shows the most recent 200 DNS queries from the [QueryLog] ring buffer.
+ * Filter chips at the top let the user narrow down to All / Blocked / Allowed.
+ * Auto-refreshes every 2 seconds via a [LaunchedEffect].
+ *
+ * Domain names are rendered in monospace so they line up vertically and are
+ * easy to scan.
+ *
+ * SDK badges (game-controller icon) appear next to game-ad blocks — they
+ * show which ad SDK the domain belongs to (AdMob, Unity, etc.).
+ */
 @Composable
 fun QueryLogScreen() {
-    var entries by remember { mutableStateOf<List<QueryLogEntry>>(emptyList()) }
+    // The QueryLog is a process-wide singleton instantiated by the VPN
+    // service. We hold our own here so the screen renders even before the
+    // VPN is running (it'll just show "no queries yet").
+    val queryLog = remember { QueryLog() }
     var filter by remember { mutableStateOf(QueryFilter.ALL) }
-    var totalCount by remember { mutableStateOf(0L) }
-    var blockedCount by remember { mutableStateOf(0L) }
-    var allowedCount by remember { mutableStateOf(0L) }
+    var entries by remember { mutableStateOf(queryLog.recent(200)) }
 
     LaunchedEffect(Unit) {
         while (true) {
             entries = when (filter) {
-                QueryFilter.ALL -> QueryLog.recent(150)
-                QueryFilter.BLOCKED -> QueryLog.recentBlocked(150)
-                QueryFilter.ALLOWED -> QueryLog.recentAllowed(150)
+                QueryFilter.ALL -> queryLog.recent(200)
+                QueryFilter.BLOCKED -> queryLog.recentBlocked(200)
+                QueryFilter.ALLOWED -> queryLog.recentAllowed(200)
             }
-            totalCount = QueryLog.totalCount()
-            blockedCount = QueryLog.totalBlockedCount()
-            allowedCount = QueryLog.totalAllowedCount()
-            delay(1000)
+            delay(2_000)
         }
     }
 
-    val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Query Log", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
-            "$totalCount total · $blockedCount blocked · $allowedCount allowed",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = "Query Log",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
         )
+        Spacer(modifier = Modifier.size(8.dp))
 
-        // Filter chips
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilterChip(
-                selected = filter == QueryFilter.ALL,
-                onClick = { filter = QueryFilter.ALL },
-                label = { Text("All") }
-            )
-            FilterChip(
-                selected = filter == QueryFilter.BLOCKED,
-                onClick = { filter = QueryFilter.BLOCKED },
-                label = { Text("Blocked") },
-                leadingIcon = { Icon(Icons.Filled.Block, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            )
-            FilterChip(
-                selected = filter == QueryFilter.ALLOWED,
-                onClick = { filter = QueryFilter.ALLOWED },
-                label = { Text("Allowed") },
-                leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            )
+            for (f in QueryFilter.entries) {
+                FilterChip(
+                    selected = filter == f,
+                    onClick = {
+                        filter = f
+                        // Immediate refresh on filter change so the UI doesn't
+                        // wait up to 2s for the next tick.
+                        entries = when (f) {
+                            QueryFilter.ALL -> queryLog.recent(200)
+                            QueryFilter.BLOCKED -> queryLog.recentBlocked(200)
+                            QueryFilter.ALLOWED -> queryLog.recentAllowed(200)
+                        }
+                    },
+                    label = { Text(f.label) },
+                )
+            }
         }
+        Spacer(modifier = Modifier.size(8.dp))
 
-        if (entries.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+        // Custom scrollbar — we draw a thin track on the right edge via a
+        // Box wrapper. The LazyColumn handles the actual scrolling.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 384.dp) // ~max-h-96
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            if (entries.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Filled.History,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("No queries yet", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                     Text(
-                        "Enable protection to start logging DNS queries",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "No queries yet. Start the VPN to begin logging.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(entries) { entry ->
-                    QueryLogItem(entry, timeFmt)
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                    items(entries.reversed()) { entry -> // newest first
+                        QueryLogRow(entry)
+                    }
                 }
             }
         }
@@ -151,79 +147,49 @@ fun QueryLogScreen() {
 }
 
 @Composable
-private fun QueryLogItem(entry: QueryLogEntry, timeFmt: SimpleDateFormat) {
-    val isBlocked = entry.blocked
-    val accentColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val bgAlpha = if (isBlocked) 0.08f else 0.03f
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isBlocked)
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = bgAlpha)
-            else MaterialTheme.colorScheme.surface
-        )
+private fun QueryLogRow(entry: QueryLog.Entry) {
+    val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Status icon
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isBlocked) {
-                    Icon(Icons.Filled.Block, contentDescription = "Blocked", tint = accentColor, modifier = Modifier.size(18.dp))
-                } else {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = "Allowed", tint = accentColor, modifier = Modifier.size(18.dp))
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            // Domain + reason
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    entry.domain,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
-                Text(
-                    entry.reason,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
-            // SDK badge if game ad
-            if (entry.sdk != null) {
-                Spacer(Modifier.width(6.dp))
-                Card(
-                    shape = RoundedCornerShape(6.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.SportsEsports, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(3.dp))
-                        Text(entry.sdk, fontSize = 9.sp, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            // Timestamp
-            Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = if (entry.blocked) Icons.Filled.Block
+            else Icons.Filled.CheckCircle,
+            contentDescription = null,
+            tint = if (entry.blocked) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                timeFmt.format(Date(entry.timestamp)),
-                fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.outline
+                text = entry.domain,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "${entry.reason}${entry.sdk?.let { " · $it" } ?: ""}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (entry.sdk != null) {
+            Icon(
+                imageVector = Icons.Filled.SportsEsports,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        Text(
+            text = timeFmt.format(Date(entry.timestamp)),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

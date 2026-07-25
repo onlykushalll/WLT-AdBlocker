@@ -1,271 +1,250 @@
-// Package filter implements blocklist parsing and loading.
+// Package filter implements streaming blocklist loading for the WLT
+// engine. Supported formats:
 //
-// Supported formats:
-//   - Hosts file: "0.0.0.0 domain" or "127.0.0.1 domain" (AdAway, Pi-hole)
-//   - Adblock Plus: "||domain^" and "||domain^$modifiers"
-//   - Domain-only: one domain per line (OISD, simplified)
-//   - Comments: lines starting with # or !
+//   - Hosts format ("0.0.0.0 domain" or "127.0.0.1 domain")
+//   - ABP format ("||example.com^")
+//   - Bare domains ("example.com")
+//   - Comments ("# ..." or "! ...")
 //
-// The loader is streaming and calls back with each parsed domain so the engine
-// can insert it into the trie+bloom as it goes (lower memory than buffering).
+// Remote lists are described by a Source struct (name + URL + format) and
+// can be enumerated via a sources.json file.
 package filter
 
 import (
-	"bufio"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"strings"
-	"time"
+        "bufio"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "io"
+        "net/http"
+        "os"
+        "path/filepath"
+        "strings"
+        "time"
+
+        "github.com/wlt/adblocker/internal/preparser"
 )
 
-// Format identifies a blocklist's syntax.
-type Format int
-
+// Format constants for Source.Format.
 const (
-	FormatAuto    Format = iota // sniff from content
-	FormatHosts                 // 0.0.0.0 domain
-	FormatAdblock               // ||domain^
-	FormatDomains               // bare domain per line
+        FormatHosts  = "hosts"
+        FormatABP    = "abp"
+        FormatDomain = "domain"
+        FormatAuto   = "auto"
 )
 
-// Source describes a blocklist to load.
+// Source describes one remote blocklist.
 type Source struct {
-	Name     string
-	URL      string // empty if local
-	Path     string // local file path (mutually exclusive with URL)
-	Format   Format
-	Enabled  bool
-	Category string // "ads", "trackers", "game-ads", "privacy", "malware"
+        Name        string `json:"name"`
+        URL         string `json:"url"`
+        Format      string `json:"format"`
+        Description string `json:"description,omitempty"`
+        Category    string `json:"category,omitempty"`
 }
 
-// LoadResult reports how many domains were loaded from a source.
-type LoadResult struct {
-	Source    Source
-	Loaded    int
-	Skipped   int
-	Duration  time.Duration
-	Error     error
+// LoadedLists is the result of loading all sources from an assets
+// directory.
+type LoadedLists struct {
+        Domains []string
+        Sources []Source
+        Errors  []error
 }
 
-// LoadFunc is called for each parsed domain.
-type LoadFunc func(domain string)
-
-// Loader parses blocklists in multiple formats.
-type Loader struct {
-	client *http.Client
+// LoadFile streams a single blocklist file and returns the parsed domains.
+// Memory-efficient: only one line is buffered at a time.
+func LoadFile(path string) ([]string, error) {
+        f, err := os.Open(path)
+        if err != nil {
+                return nil, err
+        }
+        defer f.Close()
+        return LoadReader(f)
 }
 
-// NewLoader returns a loader with a sensible HTTP client.
-func NewLoader() *Loader {
-	return &Loader{
-		client: &http.Client{Timeout: 60 * time.Second},
-	}
+// LoadReader streams domains from any io.Reader. Phase 7d: Now processes
+// pre-parsing directives (!#if/!#else/!#endif/!#include) before parsing
+// domain lines. WLT-specific tokens are set: ext_wlt=true, env_android=true,
+// cap_dns_blocking=true, cap_mitm=false. uBlock tokens (ext_ublock,
+// env_chromium, env_firefox) are set to false so browser-only rules are
+// skipped.
+func LoadReader(r io.Reader) ([]string, error) {
+        // Read all lines first (needed for preparser).
+        var rawLines []string
+        scanner := bufio.NewScanner(r)
+        scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+        for scanner.Scan() {
+                rawLines = append(rawLines, scanner.Text())
+        }
+        if err := scanner.Err(); err != nil {
+                return nil, err
+        }
+
+        // Phase 7d: Process pre-parsing directives.
+        env := map[string]bool{
+                "ext_wlt":           true,
+                "env_android":       true,
+                "cap_dns_blocking":  true,
+                "cap_mitm":          false,
+                "ext_ublock":        false,
+                "env_chromium":      false,
+                "env_firefox":       false,
+                "ext_adguard":       false,
+        }
+        processed := preparser.Process(rawLines, env, nil)
+
+        // Parse the processed lines into domains.
+        var out []string
+        for _, line := range processed {
+                line = strings.TrimSpace(line)
+                if d := parseLine(line); d != "" {
+                        out = append(out, d)
+                }
+        }
+        return out, nil
 }
 
-// Load reads a source and calls `fn` for each domain.
-// For URLs, fetches the content. For paths, reads the file.
-func (l *Loader) Load(src Source, fn LoadFunc) LoadResult {
-	start := time.Now()
-	r := LoadResult{Source: src}
-	var reader io.ReadCloser
-	if src.URL != "" {
-		resp, err := l.client.Get(src.URL)
-		if err != nil {
-			r.Error = fmt.Errorf("fetch %s: %w", src.URL, err)
-			r.Duration = time.Since(start)
-			return r
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			r.Error = fmt.Errorf("fetch %s: HTTP %d", src.URL, resp.StatusCode)
-			r.Duration = time.Since(start)
-			return r
-		}
-		reader = resp.Body
-	} else if src.Path != "" {
-		f, err := os.Open(src.Path)
-		if err != nil {
-			r.Error = fmt.Errorf("open %s: %w", src.Path, err)
-			r.Duration = time.Since(start)
-			return r
-		}
-		defer f.Close()
-		reader = f
-	} else {
-		r.Error = fmt.Errorf("source has no URL or path")
-		r.Duration = time.Since(start)
-		return r
-	}
+// parseLine returns a normalized lowercase domain from a single line of a
+// blocklist file (in any supported format), or "" if the line should be
+// skipped (comment, blank, or unrecognized).
+func parseLine(line string) string {
+        if line == "" {
+                return ""
+        }
+        // Comment.
+        if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+                return ""
+        }
+        // Strip inline comments.
+        if i := strings.IndexAny(line, "#!"); i > 0 {
+                line = strings.TrimSpace(line[:i])
+        }
 
-	format := src.Format
-	if format == FormatAuto {
-		format = sniffFormat(reader)
-	}
+        // ABP format: ||example.com^
+        if strings.HasPrefix(line, "||") {
+                line = strings.TrimPrefix(line, "||")
+                line = strings.TrimRight(line, "^")
+                line = strings.TrimSuffix(line, "/")
+                return normalize(line)
+        }
+        // ABP exception: @@||example.com^ — skip (allowlist handled elsewhere).
+        if strings.HasPrefix(line, "@@||") {
+                return ""
+        }
 
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB lines max
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		// Skip comments
-		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
-			continue
-		}
-		domains := parseLine(line, format)
-		for _, d := range domains {
-			if isValidDomain(d) {
-				fn(d)
-				r.Loaded++
-			} else {
-				r.Skipped++
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		r.Error = fmt.Errorf("scan: %w", err)
-	}
-	r.Duration = time.Since(start)
-	return r
+        // Hosts format: "0.0.0.0 domain" or "127.0.0.1 domain"
+        fields := strings.Fields(line)
+        if len(fields) >= 2 {
+                ip := fields[0]
+                if isHostsIP(ip) {
+                        return normalize(fields[1])
+                }
+        }
+        // Single bare domain.
+        if len(fields) == 1 {
+                return normalize(fields[0])
+        }
+        return ""
 }
 
-// sniffFormat reads the first few KB to guess the format.
-func sniffFormat(r io.Reader) Format {
-	br := bufio.NewReader(r)
-	preview, _ := br.Peek(8192)
-	// Push back — we can't unread, so the caller's scanner will re-read.
-	// This is a limitation; for production we'd wrap. For now, heuristic on preview:
-	for _, line := range strings.Split(string(preview), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
-			continue
-		}
-		if strings.HasPrefix(line, "||") {
-			return FormatAdblock
-		}
-		if strings.HasPrefix(line, "0.0.0.0 ") || strings.HasPrefix(line, "127.0.0.1 ") ||
-			strings.HasPrefix(line, "0.0.0.0\t") || strings.HasPrefix(line, "127.0.0.1\t") {
-			return FormatHosts
-		}
-		// Bare domain
-		return FormatDomains
-	}
-	return FormatDomains
+func isHostsIP(s string) bool {
+        switch s {
+        case "0.0.0.0", "127.0.0.1", "255.255.255.255", "::", "::1", "0.0.0.1":
+                return true
+        }
+        return false
 }
 
-// parseLine extracts domains from a line according to format.
-func parseLine(line string, format Format) []string {
-	switch format {
-	case FormatHosts:
-		// "0.0.0.0 domain [comment]" — take field 2
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			return []string{fields[1]}
-		}
-		return nil
-	case FormatAdblock:
-		// "||domain^$modifiers" or "||domain^"
-		return parseAdblockLine(line)
-	case FormatDomains:
-		// Bare domain, possibly with trailing comment
-		if idx := strings.IndexAny(line, " \t#"); idx > 0 {
-			line = line[:idx]
-		}
-		return []string{strings.Trim(line, ".")}
-	}
-	return nil
+func normalize(s string) string {
+        s = strings.TrimSpace(s)
+        s = strings.ToLower(s)
+        s = strings.TrimSuffix(s, ".")
+        s = strings.TrimPrefix(s, "*.")
+        // Strip any trailing port.
+        if i := strings.LastIndex(s, ":"); i > 0 && !strings.Contains(s[i+1:], ".") {
+                s = s[:i]
+        }
+        // Must contain at least one dot to be a valid domain.
+        if !strings.Contains(s, ".") {
+                return ""
+        }
+        return s
 }
 
-// parseAdblockLine handles ABP/AdGuard syntax: ||domain^$modifiers
-func parseAdblockLine(line string) []string {
-	// Only handle network block rules (||domain^). Skip cosmetic (##) and others.
-	if !strings.HasPrefix(line, "||") {
-		return nil
-	}
-	rest := line[2:]
-	// Strip modifiers: everything from $ onward (we apply at DNS level, so
-	// most modifiers like $third-party don't apply — we just block the domain).
-	if idx := strings.Index(rest, "$"); idx >= 0 {
-		rest = rest[:idx]
-	}
-	// Strip trailing ^ (separator marker in ABP).
-	rest = strings.TrimSuffix(rest, "^")
-	rest = strings.TrimSuffix(rest, "|")
-	// Handle wildcard: ||*.example.com^
-	if strings.HasPrefix(rest, "*.") {
-		rest = rest[2:]
-	}
-	rest = strings.TrimSpace(rest)
-	rest = strings.Trim(rest, ".")
-	if rest == "" {
-		return nil
-	}
-	return []string{rest}
+// LoadFromAssets loads every blocklist found in assetsDir. Files with
+// extension .txt are loaded as blocklists; sources.json (if present) is
+// parsed for Source metadata. The resulting LoadedLists.Domains is the
+// deduplicated union of all loaded lists.
+func LoadFromAssets(assetsDir string) (*LoadedLists, error) {
+        info, err := os.Stat(assetsDir)
+        if err != nil {
+                return nil, err
+        }
+        if !info.IsDir() {
+                return nil, errors.New("filter: assetsDir is not a directory: " + assetsDir)
+        }
+
+        ll := &LoadedLists{}
+        seen := make(map[string]bool)
+
+        // Load sources.json if present for metadata.
+        sourcesPath := filepath.Join(assetsDir, "sources.json")
+        if data, err := os.ReadFile(sourcesPath); err == nil {
+                _ = json.Unmarshal(data, &ll.Sources)
+        }
+
+        // Walk all .txt files.
+        entries, err := os.ReadDir(assetsDir)
+        if err != nil {
+                return nil, err
+        }
+        for _, ent := range entries {
+                if ent.IsDir() {
+                        continue
+                }
+                name := ent.Name()
+                if !strings.HasSuffix(name, ".txt") {
+                        continue
+                }
+                path := filepath.Join(assetsDir, name)
+                domains, err := LoadFile(path)
+                if err != nil {
+                        ll.Errors = append(ll.Errors, fmt.Errorf("%s: %w", name, err))
+                        continue
+                }
+                for _, d := range domains {
+                        if !seen[d] {
+                                seen[d] = true
+                                ll.Domains = append(ll.Domains, d)
+                        }
+                }
+        }
+        return ll, nil
 }
 
-// isValidDomain is a minimal sanity check.
-func isValidDomain(d string) bool {
-	if d == "" || len(d) > 253 {
-		return false
-	}
-	if strings.ContainsAny(d, " /?#") {
-		return false
-	}
-	// Must have at least one dot, or be a known TLD-like (localhost)
-	if !strings.Contains(d, ".") && d != "localhost" {
-		return false
-	}
-	return true
+// FetchRemote downloads a remote blocklist over HTTP with a 30-second
+// timeout. The body is streamed through LoadReader for memory efficiency.
+func FetchRemote(src Source) ([]string, error) {
+        client := &http.Client{Timeout: 30 * time.Second}
+        resp, err := client.Get(src.URL)
+        if err != nil {
+                return nil, err
+        }
+        defer resp.Body.Close()
+        if resp.StatusCode != http.StatusOK {
+                return nil, fmt.Errorf("filter: %s returned HTTP %d", src.URL, resp.StatusCode)
+        }
+        return LoadReader(resp.Body)
 }
 
-// DefaultSources returns the WLT default blocklist set.
-// These are the lists that ship enabled by default in Phase 1.
-func DefaultSources() []Source {
-	return []Source{
-		{
-			Name:     "WLT Game Ads",
-			Path:     "blocklists/wlt-game-ads.txt",
-			Format:   FormatDomains,
-			Enabled:  true,
-			Category: "game-ads",
-		},
-		{
-			Name:     "WLT Passthrough (Allow)",
-			Path:     "blocklists/wlt-passthrough.txt",
-			Format:   FormatDomains,
-			Enabled:  true,
-			Category: "allow",
-		},
-		{
-			Name:     "OISD Big",
-			URL:      "https://big.oisd.nl/domainswild",
-			Format:   FormatDomains,
-			Enabled:  true,
-			Category: "ads",
-		},
-		{
-			Name:     "AdGuard DNS filter",
-			URL:      "https://adguardteam.github.io/AdGuardDNSFilter/Filters/filter.txt",
-			Format:   FormatAdblock,
-			Enabled:  true,
-			Category: "ads",
-		},
-		{
-			Name:     "HaGeZi Normal",
-			URL:      "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/normal.txt",
-			Format:   FormatDomains,
-			Enabled:  true,
-			Category: "ads",
-		},
-		{
-			Name:     "AdGuard Tracking Protection",
-			URL:      "https://adguardteam.github.io/AdGuardDNSFilter/Filters/replace/neohosts.txt",
-			Format:   FormatAdblock,
-			Enabled:  false,
-			Category: "trackers",
-		},
-	}
+// LoadSourcesJSON reads a sources.json file from disk.
+func LoadSourcesJSON(path string) ([]Source, error) {
+        data, err := os.ReadFile(path)
+        if err != nil {
+                return nil, err
+        }
+        var sources []Source
+        if err := json.Unmarshal(data, &sources); err != nil {
+                return nil, err
+        }
+        return sources, nil
 }

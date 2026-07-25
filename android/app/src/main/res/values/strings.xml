@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WLT Adblocker</string>
-    <string name="vpn_session">WLT Ad Blocking</string>
-    <string name="vpn_protected">Protected — WLT active</string>
-    <string name="vpn_not_protected">Not protected — tap to enable</string>
-    <string name="permission_vpn_required">VPN permission required to filter ads system-wide</string>
+    <string name="app_name">WLT-Adblocker</string>
+
+    <!-- Quick settings tile -->
+    <string name="tile_label">WLT</string>
+
+    <!-- Notification channels -->
+    <string name="channel_vpn_name">WLT VPN status</string>
+    <string name="channel_vpn_desc">Shows whether WLT ad blocking is active.</string>
+    <string name="channel_stats_name">WLT alerts</string>
+    <string name="channel_stats_desc">Pause reminders and block-count milestones.</string>
+
+    <!-- Pause notification -->
+    <string name="notif_pause_title">WLT protection paused</string>
+    <string name="notif_pause_text">Resumes in %1$d min</string>
+
+    <!-- Foreground service notification (initial; service updates with live counts). -->
+    <string name="notif_vpn_active_title">WLT active — protecting</string>
+    <string name="notif_vpn_active_text">%1$d queries blocked</string>
+    <string name="notif_vpn_paused_title">WLT paused</string>
+    <string name="notif_vpn_paused_text">Resumes in %1$d min · queries not blocked</string>
 </resources>

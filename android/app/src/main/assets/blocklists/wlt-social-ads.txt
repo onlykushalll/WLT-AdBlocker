@@ -1,43 +1,101 @@
-# WLT TikTok/Snapchat/Twitch Ad & Tracker Domains
-# Based on research: M4jx/TikTokBlocklist, Netify.ai, HaGeZi, r/pihole
-# In-feed ads share CDN with content — these are telemetry/tracking endpoints.
+# ============================================================
+# WLT Social Ads Blocklist
+# ------------------------------------------------------------
+# Telemetry and ad-serving domains for TikTok, Snapchat,
+# Twitch, and Pangle (TikTok's ad network used by 380k+ apps).
+# Built in Task 34 (comprehensive research round) and expanded
+# with Pangle domains in Task 37.
+#
+# HONEST LIMIT (TikTok / Twitch):
+#   In-feed ads share the same CDN as organic content, so DNS
+#   blocking cannot strip them without breaking playback. The
+#   scriptlets (twitch-video-swap, twitch-mute-ads) handle
+#   stream ads at the MITM layer; DNS only kills the
+#   tracking/analytics surface.
+#   Snapchat: blocking the full sc-cdn.net root breaks the
+#   app, so only ads-interfaces.sc-cdn.net is blocked.
+# ============================================================
 
-# TikTok Ad/Tracking
+# === TIKTOK ===
 ads.tiktok.com
 analytics.tiktok.com
 events.tiktok.com
 mssdk.tiktok.com
 log.tiktokv.com
-log-sg.tiktokv.com
-mon.tiktokv.com
-analytics-sg.tiktok.com
-events-sg.tiktok.com
 api-h2.tiktokv.com
-api.tiktokv.com
-mssdk-sg.tiktokv.com
-mssdk-va.tiktokv.com
-security-sdk.tiktokv.com
-tnc.tiktokv.com
-tnc-sg.tiktokv.com
-webcast.tiktokv.com
+mon.tiktokv.com
+rt.tiktokv.com
+ad.tiktok.com
 business-api.tiktok.com
-business.tiktok.com
+t.tiktok.com
+analytics-sg.tiktok.com
+log-sg.tiktokv.com
 
-# Snapchat Ad/Tracking
+# === SNAPCHAT ===
 ads-interfaces.sc-cdn.net
-ads.sc-cdn.net
-snap-ads.sc-cdn.net
-sc-analytics.appspot.com
-stats.snapchat.com
 snapads.com
-snapads.sc-cdn.net
+feelinsonice-hrd.appspot.com
+sc-analytics.appspot.com
+api.snapkit.com
+accounts.snapchat.com
+adsapi.snapchat.com
+sc-stats.appspot.com
 
-# Twitch Ad/Tracking
-ads.twitch.tv
-adsales.twitch.tv
-api.adsales.twitch.tv
+# === TWITCH ===
+# Pattern: video-edge-*.abs.hls.ttvnw.net  (HLS edge nodes)
+# Bare ttvnw.net is NOT blocked because it carries live video;
+# the m3u-prune + twitch-video-swap scriptlets handle stream
+# ad segments in the MITM layer. The wildcarded edge hostname
+# is documented as a comment-only pattern (engine suffix
+# matches on ttvnw.net would break playback).
+ad.twitch.tv
+discussions.twitch.tv
+trowel.twitch.tv
+spa.twitch.tv
+count.twitch.tv
+clips-edge.twitch.tv
+irc.twitch.tv
+aws.amazon.com.twitch
 passport.twitch.tv
-trow.twitch.tv
-spade.twitch.tv
-events.twitch.tv
-scribe.twitch.tv
+
+# === PANGLE (TIKTOK AD NETWORK, 380K+ APPS) ===
+api.pangleglobal.com
+cdn.pangleglobal.com
+sdk-api.pangleglobal.com
+plat.pangleglobal.com
+log.pangleglobal.com
+ads.pangleglobal.com
+pgl-stat.pangle.cn
+
+# === 2025 NEW SOCIAL TRACKING DOMAINS ===
+# TikTok expansion
+analytics-va.tiktok.com
+log-sg.tiktokv.com
+ads-sg.tiktok.com
+mssdk-sg.tiktokv.com
+api2-16.tiktokv.com
+events-va.tiktok.com
+logva.tiktokv.com
+rt-api.tiktokv.com
+mssdk-va.tiktokv.com
+
+# Snapchat expansion
+analytics.snapchat.com
+sc-static.net
+t.snapchat.com
+accounts.snap.com
+kit.snapchat.com
+
+# Instagram
+graph.instagram.com
+i.instagram.com
+edge-instagram.facebook.com
+rupload.instagram.com
+upload.instagram.com
+static.cdninstagram.com
+scontent.cdninstagram.com
+
+# Threads expansion
+burp.threads.net
+edge.threads.net
+graph.threads.net

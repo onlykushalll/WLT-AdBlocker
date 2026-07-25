@@ -7,67 +7,93 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val WltGreen = Color(0xFF00C896)
-private val WltGreenDark = Color(0xFF00A87E)
-private val WltAmber = Color(0xFFFFB300)
-private val WltRed = Color(0xFFEF4444)
-
-private val DarkColors = darkColorScheme(
-    primary = WltGreen,
-    onPrimary = Color(0xFF003028),
-    primaryContainer = Color(0xFF004D3D),
-    onPrimaryContainer = Color(0xFFB0FFE6),
-    secondary = WltAmber,
-    onSecondary = Color(0xFF402900),
-    secondaryContainer = Color(0xFF5C3F00),
-    onSecondaryContainer = Color(0xFFFFDFA0),
-    tertiary = Color(0xFF80CBC4),
-    error = WltRed,
-    background = Color(0xFF0A0F0D),
-    onBackground = Color(0xFFE0E5E2),
-    surface = Color(0xFF111714),
-    onSurface = Color(0xFFE0E5E2),
-    surfaceVariant = Color(0xFF1F2823),
-    onSurfaceVariant = Color(0xFFB8C2BC),
-    outline = Color(0xFF6B7570),
-)
-
-private val LightColors = lightColorScheme(
-    primary = WltGreenDark,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFB0FFE6),
-    onPrimaryContainer = Color(0xFF003028),
-    secondary = Color(0xFF8B5E00),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFDFA0),
-    onSecondaryContainer = Color(0xFF2C1900),
-    tertiary = Color(0xFF00695C),
-    error = WltRed,
-    background = Color(0xFFF7FAF8),
-    onBackground = Color(0xFF111714),
-    surface = Color.White,
-    onSurface = Color(0xFF111714),
-    surfaceVariant = Color(0xFFDCE5E0),
-    onSurfaceVariant = Color(0xFF3F4944),
-    outline = Color(0xFF6B7570),
-)
-
+/**
+ * WLT theme.
+ *
+ * Material3 dynamic color is INTENTIONALLY OFF — we use brand colors so the
+ * app looks the same on every device regardless of the user's wallpaper.
+ * Dynamic color would also let OEM "themes" override our carefully chosen
+ * green/amber palette with whatever blue/purple happens to be in fashion,
+ * which is exactly what the design guidelines say not to do.
+ *
+ * Status bar / navigation bar appearance is set via WindowCompat (not the
+ * deprecated `statusBarColor` API — Task 14 deprecation fix).
+ */
 @Composable
 fun WltTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    // WLT defaults to LIGHT theme per user request — clean, professional, readable.
+    // The light palette uses the same dark-green/teal + amber brand identity
+    // on a near-white surface for excellent daylight readability.
+    darkTheme: Boolean = false,
+    content: @Composable () -> Unit,
 ) {
-    val colors = if (darkTheme) DarkColors else LightColors
+    val colorScheme = if (darkTheme) {
+        darkColorScheme(
+            primary = WltPrimary,
+            onPrimary = WltOnPrimary,
+            primaryContainer = WltPrimaryContainer,
+            onPrimaryContainer = WltOnPrimaryContainer,
+            secondary = WltSecondary,
+            onSecondary = WltOnSecondary,
+            secondaryContainer = WltSecondaryContainer,
+            onSecondaryContainer = WltOnSecondaryContainer,
+            tertiary = WltTertiary,
+            onTertiary = WltOnTertiary,
+            background = WltBackground,
+            onBackground = WltOnBackground,
+            surface = WltSurface,
+            onSurface = WltOnSurface,
+            surfaceVariant = WltSurfaceVariant,
+            onSurfaceVariant = WltOnSurfaceVariant,
+            error = WltError,
+            onError = WltOnError,
+            errorContainer = WltErrorContainer,
+            onErrorContainer = WltOnErrorContainer,
+            outline = WltOutline,
+            outlineVariant = WltOutlineVariant,
+        )
+    } else {
+        lightColorScheme(
+            primary = WltPrimaryLight,
+            onPrimary = WltOnPrimaryLight,
+            primaryContainer = WltPrimaryContainerLight,
+            onPrimaryContainer = WltOnPrimaryContainerLight,
+            secondary = WltSecondaryLight,
+            onSecondary = WltOnSecondaryLight,
+            secondaryContainer = WltSecondaryContainerLight,
+            onSecondaryContainer = WltOnSecondaryContainerLight,
+            tertiary = WltSecondaryLight,
+            onTertiary = WltOnSecondaryLight,
+            background = WltBackgroundLight,
+            onBackground = WltOnBackgroundLight,
+            surface = WltSurfaceLight,
+            onSurface = WltOnSurfaceLight,
+            surfaceVariant = WltSurfaceVariantLight,
+            onSurfaceVariant = WltOnSurfaceVariantLight,
+            error = WltErrorLight,
+            onError = WltOnErrorLight,
+            outline = WltOutlineLight,
+        )
+    }
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
+            // Set the status bar icon appearance to match the theme. We do NOT
+            // set statusBarColor — it's deprecated and the system bar is
+            // transparent under edge-to-edge anyway.
             val window = (view.context as Activity).window
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
-    MaterialTheme(colorScheme = colors, content = content)
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = WltTypography,
+        content = content,
+    )
 }

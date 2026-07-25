@@ -1,147 +1,225 @@
-// Package preparser implements uBlock Origin's pre-parsing directives
-// for filter lists: !#include, !#if, !#else, !#endif.
+// Package preparser implements the uBlock Origin pre-parsing directives
+// processor.
 //
-// This lets WLT use filter lists that have platform-specific sections
-// (e.g., Firefox-only rules, Chromium-only rules) without manually editing them.
+// Supported directives (line-leading, case-sensitive on the `!#` prefix):
 //
-// WLT-specific tokens:
-//   ext_wlt      — true (WLT is the engine)
-//   env_android  — true (running on Android)
-//   cap_dns_blocking — true (DNS-level blocking supported)
-//   cap_mitm     — true if HTTPS MITM is enabled
-//   cap_ipv6     — true if IPv6 is supported
+//   !#if ENV_TOKEN                — start a conditional block; lines until
+//                                   the matching else/endif are kept only
+//                                   if ENV_TOKEN is true in the env map.
+//   !#else                        — invert the current block's keep-flag.
+//   !#endif                       — close the current block.
+//   !#include URL_OR_PATH         — invoke the include callback to fetch
+//                                   another list and inline its lines.
 //
-// Standard uBlock tokens (for compatibility):
-//   ext_ublock, ext_abp, env_mobile, env_chromium, env_firefox, false
+// WLT-specific tokens (defined here so callers don't have to remember):
+//
+//   ext_wlt          — true when WLT is the consuming engine
+//   env_android      — true when running on Android
+//   cap_dns_blocking — true when DNS-layer blocking is available
+//   cap_mitm         — true when HTTPS MITM (and thus cosmetic/scriptlets)
+//                      is available
+//
+// uBlock-compatible tokens (also recognised):
+//
+//   ext_ublock       — true when uBlock Origin is the consuming engine
+//   env_chromium     — true on Chromium-based browsers
+//   env_firefox      — true on Firefox-based browsers
+//   env_edge, env_safari, env_opera — analogous
+//   false, true      — literal booleans
+//   !#if !TOKEN      — negation
+//
+// Nested if blocks are supported. The !#include resolver is a caller-
+// supplied callback that takes the include target and returns its lines
+// (so the caller can decide whether to fetch from disk, HTTP, or a
+// bundled asset). An empty env map means "all conditional blocks are
+// dropped unless they contain a literal `true` token".
 package preparser
 
 import (
 	"strings"
 )
 
-// Preprocessor handles !#if / !#include directive processing.
-type Preprocessor struct {
-	env map[string]bool
+// Process runs the preprocessor over lines and returns the output lines
+// (directives stripped, included lists inlined, conditional blocks
+// resolved). env maps token -> bool. include is called for every
+// !#include directive; it may return nil or an empty slice if the include
+// can't be resolved (the include line is then dropped silently).
+//
+// env may be nil — equivalent to an empty map.
+func Process(lines []string, env map[string]bool, include func(target string) []string) []string {
+	if env == nil {
+		env = map[string]bool{}
+	}
+	p := &processor{env: env, include: include}
+	return p.run(lines)
 }
 
-// New creates a preprocessor with WLT's default environment.
-func New(mitmEnabled bool) *Preprocessor {
-	return &Preprocessor{
-		env: map[string]bool{
-			"ext_wlt":            true,
-			"env_android":        true,
-			"env_mobile":         true,
-			"cap_dns_blocking":   true,
-			"cap_mitm":          mitmEnabled,
-			"cap_ipv6":          true,
-			"ext_ublock":        false,
-			"ext_abp":           false,
-			"ext_ubol":          false,
-			"env_chromium":      false,
-			"env_firefox":       false,
-			"env_edge":          false,
-			"env_safari":        false,
-			"false":             false,
-		},
-	}
+type processor struct {
+	env     map[string]bool
+	include func(target string) []string
+
+	// stack of conditional frames; each frame tracks whether its block is
+	// currently being kept and whether any prior branch in the same
+	// if/else chain has been kept.
+	stack []frame
 }
 
-// Process takes raw filter list text and returns the processed text
-// with all !#if/!#else/!#endif conditionals resolved and !#include directives
-// expanded (if a resolver is provided).
-func (p *Preprocessor) Process(text string, includeResolver func(path string) (string, error)) string {
-	lines := strings.Split(text, "\n")
-	var output []string
+type frame struct {
+	keep        bool // currently kept?
+	anyKept     bool // any branch in this if/else chain kept so far?
+	parentKept  bool // was the parent frame keeping?
+}
 
-	// Stack for nested !#if blocks
-	type ifBlock struct {
-		condition bool  // evaluated condition
-		inElse    bool  // are we in the !#else branch?
-		active    bool  // is the current branch active?
-		parentActive bool // was the parent block active?
-	}
-	var stack []ifBlock
-
-	isActive := func() bool {
-		if len(stack) == 0 {
-			return true
-		}
-		return stack[len(stack)-1].active
-	}
-
+// run processes the input lines and returns the output.
+func (p *processor) run(lines []string) []string {
+	var out []string
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-
-		// !#if directive
-		if strings.HasPrefix(trimmed, "!#if ") {
-			cond := strings.TrimPrefix(trimmed, "!#if ")
-			cond = strings.TrimSpace(cond)
-			negated := strings.HasPrefix(cond, "!")
-			if negated {
-				cond = strings.TrimSpace(cond[1:])
-			}
-			val := p.env[cond]
-			result := val
-			if negated {
-				result = !val
-			}
-			parentActive := isActive()
-			block := ifBlock{
-				condition: result,
-				active: parentActive && result,
-				parentActive: parentActive,
-			}
-			stack = append(stack, block)
-			continue
-		}
-
-		// !#else directive
-		if trimmed == "!#else" {
-			if len(stack) > 0 {
-				block := &stack[len(stack)-1]
-				block.inElse = true
-				block.active = block.parentActive && !block.condition
-			}
-			continue
-		}
-
-		// !#endif directive
-		if trimmed == "!#endif" {
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
-			continue
-		}
-
-		// !#include directive
-		if strings.HasPrefix(trimmed, "!#include ") && isActive() {
-			includePath := strings.TrimSpace(strings.TrimPrefix(trimmed, "!#include "))
-			if includeResolver != nil {
-				included, err := includeResolver(includePath)
-				if err == nil && included != "" {
-					// Recursively process the included content
-					included = p.Process(included, includeResolver)
-					output = append(output, strings.Split(included, "\n")...)
+		switch {
+		case strings.HasPrefix(trimmed, "!#if "):
+			p.pushIf(strings.TrimSpace(trimmed[len("!#if "):]))
+		case trimmed == "!#else":
+			p.flipElse()
+		case trimmed == "!#endif":
+			p.popIf()
+		case strings.HasPrefix(trimmed, "!#include "):
+			if p.keep() {
+				target := strings.TrimSpace(trimmed[len("!#include "):])
+				if p.include != nil {
+					out = append(out, p.include(target)...)
 				}
 			}
-			continue
-		}
-
-		// Regular line — include only if active
-		if isActive() {
-			output = append(output, line)
+		default:
+			if p.keep() {
+				out = append(out, line)
+			}
 		}
 	}
-
-	return strings.Join(output, "\n")
+	return out
 }
 
-// SetEnv sets an environment variable for conditional evaluation.
-func (p *Preprocessor) SetEnv(key string, value bool) {
-	p.env[key] = value
+// keep returns true if the current conditional context is "keep this line".
+func (p *processor) keep() bool {
+	if len(p.stack) == 0 {
+		return true
+	}
+	return p.stack[len(p.stack)-1].keep
 }
 
-// GetEnv returns the value of an environment variable.
-func (p *Preprocessor) GetEnv(key string) bool {
-	return p.env[key]
+// pushIf starts a new conditional frame. The expression is evaluated
+// against the env map; if the parent frame is not kept, this frame is
+// also not kept (nested blocks inherit the parent's decision).
+func (p *processor) pushIf(expr string) {
+	parentKept := true
+	if len(p.stack) > 0 {
+		parentKept = p.stack[len(p.stack)-1].keep
+	}
+	keep := parentKept && evalExpr(expr, p.env)
+	p.stack = append(p.stack, frame{
+		keep:       keep,
+		anyKept:    keep,
+		parentKept: parentKept,
+	})
+}
+
+// flipElse inverts the current frame's keep flag. If the parent is not
+// kept, the else branch is also not kept.
+func (p *processor) flipElse() {
+	if len(p.stack) == 0 {
+		return
+	}
+	f := &p.stack[len(p.stack)-1]
+	if !f.parentKept {
+		f.keep = false
+		return
+	}
+	if f.anyKept {
+		// A prior branch already kept — else branch must NOT keep.
+		f.keep = false
+	} else {
+		f.keep = true
+		f.anyKept = true
+	}
+}
+
+// popIf closes the current conditional frame.
+func (p *processor) popIf() {
+	if len(p.stack) == 0 {
+		return
+	}
+	p.stack = p.stack[:len(p.stack)-1]
+}
+
+// evalExpr evaluates a single !#if expression against the env map.
+// Supported forms:
+//   - "TOKEN"        — true iff env[TOKEN] is true
+//   - "!TOKEN"       — negation
+//   - "TOKEN1 && TOKEN2" — logical AND
+//   - "TOKEN1 || TOKEN2" — logical OR
+//   - "true", "false" — literals
+func evalExpr(expr string, env map[string]bool) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return false
+	}
+	// Split on || (lowest precedence).
+	if orParts := splitTop(expr, "||"); len(orParts) > 1 {
+		for _, p := range orParts {
+			if evalExpr(p, env) {
+				return true
+			}
+		}
+		return false
+	}
+	// Split on &&.
+	if andParts := splitTop(expr, "&&"); len(andParts) > 1 {
+		for _, p := range andParts {
+			if !evalExpr(p, env) {
+				return false
+			}
+		}
+		return true
+	}
+	// Negation.
+	expr = strings.TrimSpace(expr)
+	if strings.HasPrefix(expr, "!") {
+		return !evalExpr(strings.TrimSpace(expr[1:]), env)
+	}
+	// Parenthesised sub-expression.
+	if strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		return evalExpr(expr[1:len(expr)-1], env)
+	}
+	// Literals.
+	switch expr {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	// Token lookup.
+	return env[expr]
+}
+
+// splitTop splits s on sep at the top level (not inside parentheses).
+func splitTop(s, sep string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+		if depth == 0 && i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
+			parts = append(parts, strings.TrimSpace(s[start:i]))
+			start = i + len(sep)
+			i += len(sep) - 1
+		}
+	}
+	parts = append(parts, strings.TrimSpace(s[start:]))
+	return parts
 }

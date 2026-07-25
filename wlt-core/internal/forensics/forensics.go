@@ -1,12 +1,7 @@
-// Package forensics implements WLT's "Ad Forensics" engine — the feature that
-// no other adblocker has. When an ad slips past, WLT explains exactly which
-// layer missed it and recommends a one-tap fix.
-//
-// Each DNS/HTTPS/connection event is recorded with a forensic trace:
-//   - Which layers evaluated it (DNS, SNI, HTTPS, Scriptlet)
-//   - What each layer decided (block, allow, unknown)
-//   - Why a layer would have blocked it (if enabled)
-//   - Recommended action to fix future misses
+// Package forensics implements the WLT Ad Forensics engine: a bounded
+// ring buffer that records per-layer decisions and lets the UI answer
+// "why did this ad get through?" with concrete trace data plus recommended
+// one-tap fixes.
 package forensics
 
 import (
@@ -14,267 +9,183 @@ import (
 	"time"
 )
 
-// Layer identifies a blocking layer in the Smart Cascade.
-type Layer int
-
+// Decision constants used by Trace.Decision. Mirrors engine.Decision but
+// kept as plain ints in this package to avoid an import cycle.
 const (
-	LayerDNS       Layer = 1
-	LayerSNI       Layer = 2
-	LayerHTTPS     Layer = 3
-	LayerScriptlet Layer = 4
+	DecisionAllow    = 0
+	DecisionBlock    = 1
+	DecisionNullIP   = 2
+	DecisionNXDOMAIN = 3
 )
 
-func (l Layer) String() string {
-	switch l {
-	case LayerDNS:
-		return "DNS"
-	case LayerSNI:
-		return "SNI"
-	case LayerHTTPS:
-		return "HTTPS"
-	case LayerScriptlet:
-		return "Scriptlet"
-	default:
-		return "Unknown"
-	}
-}
-
-// Decision is what a layer decided about a request.
-type Decision int
-
+// Layer constants used by Trace.Layer. Mirrors engine layer codes.
 const (
-	DecisionBlock      Decision = 1 // layer blocked this request
-	DecisionAllow      Decision = 2 // layer explicitly allowed it
-	DecisionMiss       Decision = 3 // layer didn't match (ad got through here)
-	DecisionNotChecked Decision = 4 // layer wasn't evaluated (disabled or not applicable)
-	DecisionNotApplicable Decision = 5 // layer can't apply to this request type
+	LayerDNS     = 0
+	LayerSNI     = 1
+	LayerHTTPS   = 2
+	LayerScript  = 3
+	LayerCascade = 4
 )
 
-func (d Decision) String() string {
-	switch d {
-	case DecisionBlock:
-		return "BLOCKED"
-	case DecisionAllow:
-		return "ALLOWED"
-	case DecisionMiss:
-		return "MISSED"
-	case DecisionNotChecked:
-		return "N/A (disabled)"
-	case DecisionNotApplicable:
-		return "N/A (not applicable)"
-	default:
-		return "Unknown"
-	}
-}
-
-// LayerResult is one layer's evaluation of a single request.
-type LayerResult struct {
-	Layer       Layer
-	Decision    Decision
-	Rule        string  // which rule matched (if any)
-	Reason      string  // human-readable explanation
-	WouldBlock  bool    // if this layer were enabled, would it have blocked?
-	FixAction   string  // one-tap fix recommendation if it missed
-}
-
-// Trace is the full forensic record for one request.
+// Trace records a single per-layer decision for one request.
 type Trace struct {
-	ID         int64
-	Timestamp  time.Time
-	Domain     string
-	Path       string // URL path (for HTTPS layer)
-	IP         string
-	Port       int
-	PackageUID int
-	Package    string
-	SDK        string // detected game SDK, if any
-	Results    []LayerResult
-	FinalBlock bool
+	Timestamp time.Time
+	Domain    string
+	Layer     int
+	Decision  int
+	Reason    string
+	SDK       string
 }
 
-// Recorder stores forensic traces. Bounded by a ring buffer to limit memory.
-type Recorder struct {
-	mu      sync.Mutex
-	traces  []*Trace
-	maxSize int
-	nextID  int64
-	// missIndex: domain -> count of times it slipped through
-	missIndex map[string]int
+// Engine is a bounded ring buffer of forensic Traces plus recommendation
+// helpers. It is safe for concurrent use.
+type Engine struct {
+	mu      sync.RWMutex
+	buf     []Trace
+	head    int // next write position
+	size    int // number of valid entries
+	cap     int
+	reasons map[string]int // domain -> count of allows (for fix recommendations)
+	sdkHits map[string]int // sdk -> count of blocks
 }
 
-// NewRecorder returns a recorder holding up to maxSize traces.
-func NewRecorder(maxSize int) *Recorder {
-	if maxSize <= 0 {
-		maxSize = 5000
+// New returns an Engine with capacity entries (use 5000 for the production
+// default).
+func New(capacity int) *Engine {
+	if capacity < 1 {
+		capacity = 5000
 	}
-	return &Recorder{
-		traces:    make([]*Trace, 0, maxSize),
-		maxSize:   maxSize,
-		missIndex: make(map[string]int),
+	return &Engine{
+		buf:     make([]Trace, capacity),
+		cap:     capacity,
+		reasons: make(map[string]int),
+		sdkHits: make(map[string]int),
 	}
 }
 
-// Record adds a trace. If the request slipped through (FinalBlock=false but
-// a layer said WouldBlock=true), the domain's miss counter is incremented.
-func (r *Recorder) Record(t *Trace) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	t.ID = r.nextID
-	r.nextID++
+// Record appends a trace to the ring buffer. If the buffer is full the
+// oldest entry is overwritten.
+func (e *Engine) Record(t Trace) {
 	if t.Timestamp.IsZero() {
 		t.Timestamp = time.Now()
 	}
-	if len(r.traces) >= r.maxSize {
-		// drop oldest
-		r.traces = r.traces[1:]
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.buf[e.head] = t
+	e.head = (e.head + 1) % e.cap
+	if e.size < e.cap {
+		e.size++
 	}
-	r.traces = append(r.traces, t)
-	// Track misses for the "why did this ad get through" feature.
-	if !t.FinalBlock {
-		for _, lr := range t.Results {
-			if lr.WouldBlock {
-				r.missIndex[t.Domain]++
-				break
-			}
-		}
+	// Track stats for recommendations. Allow decisions with a non-empty
+	// reason (suggesting the allowlist let something through) bump the
+	// per-domain allow counter.
+	if t.Decision == DecisionAllow && t.Domain != "" {
+		e.reasons[t.Domain]++
+	}
+	if t.Decision == DecisionBlock && t.SDK != "" {
+		e.sdkHits[t.SDK]++
 	}
 }
 
-// RecentTraces returns the last n traces.
-func (r *Recorder) RecentTraces(n int) []*Trace {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if n <= 0 || n > len(r.traces) {
-		n = len(r.traces)
+// Recent returns the n most-recent traces, newest last. If n > size, all
+// available traces are returned.
+func (e *Engine) Recent(n int) []Trace {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if n <= 0 {
+		return nil
 	}
-	start := len(r.traces) - n
-	out := make([]*Trace, n)
-	copy(out, r.traces[start:])
-	return out
-}
-
-// TopMissedDomains returns domains that slipped through most often,
-// along with the recommended fix (the layer that would have blocked them).
-// This powers the "Ad Forensics" dashboard tile: "X ads slipped past today,
-// here's why and how to fix it."
-func (r *Recorder) TopMissedDomains(n int) []MissSummary {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	type pair struct {
-		domain string
-		count  int
-		fix    string
-		layer  Layer
+	if n > e.size {
+		n = e.size
 	}
-	var pairs []pair
-	for domain, count := range r.missIndex {
-		// Find the recommended fix for this domain.
-		fix := "Enable more blocking layers"
-		layer := LayerDNS
-		for i := len(r.traces) - 1; i >= 0; i-- {
-			t := r.traces[i]
-			if t.Domain == domain {
-				for _, lr := range t.Results {
-					if lr.WouldBlock {
-						fix = lr.FixAction
-						layer = lr.Layer
-						break
-					}
-				}
-				break
-			}
-		}
-		pairs = append(pairs, pair{domain, count, fix, layer})
-	}
-	// Sort by count desc (simple insertion sort — n is small)
-	for i := 1; i < len(pairs); i++ {
-		for j := i; j > 0 && pairs[j].count > pairs[j-1].count; j-- {
-			pairs[j], pairs[j-1] = pairs[j-1], pairs[j]
-		}
-	}
-	if n > len(pairs) {
-		n = len(pairs)
-	}
-	out := make([]MissSummary, 0, n)
+	out := make([]Trace, 0, n)
+	// The oldest entry is at (head - size + cap) % cap when buffer is full,
+	// or at index 0 when not full.
+	start := (e.head - e.size + e.cap) % e.cap
 	for i := 0; i < n; i++ {
-		out = append(out, MissSummary{
-			Domain:        pairs[i].domain,
-			MissCount:     pairs[i].count,
-			FixAction:     pairs[i].fix,
-			SuggestedLayer: pairs[i].layer,
-		})
+		idx := (start + i) % e.cap
+		out = append(out, e.buf[idx])
 	}
 	return out
 }
 
-// MissSummary is a digest entry for the "why ads got through" dashboard.
-type MissSummary struct {
-	Domain         string
-	MissCount      int
-	FixAction      string
-	SuggestedLayer Layer
+// Size returns the number of traces currently stored.
+func (e *Engine) Size() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.size
 }
 
-// Stats returns aggregate counts for the dashboard.
-type Stats struct {
-	TotalTraces  int
-	TotalBlocked int
-	TotalMissed  int
-	UniqueMissed int
-	TopFixLayer  Layer
+// RecommendFixes returns a list of human-readable one-tap fix
+// recommendations based on recorded traces. Each entry is a suggestion the
+// user can act on from the UI (e.g. add a domain to the blocklist, enable a
+// layer they disabled).
+func (e *Engine) RecommendFixes() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var out []string
+
+	// Find the most-allowed domain (suggest blocking it).
+	var topDomain string
+	var topCount int
+	for d, c := range e.reasons {
+		if c > topCount {
+			topCount = c
+			topDomain = d
+		}
+	}
+	if topDomain != "" && topCount >= 3 {
+		out = append(out, "Domain '"+topDomain+"' was allowed "+itoa(topCount)+
+			" times — consider adding it to the denylist.")
+	}
+
+	// SDK leaderboard.
+	var topSDK string
+	var topSDKCount int
+	for s, c := range e.sdkHits {
+		if c > topSDKCount {
+			topSDKCount = c
+			topSDK = s
+		}
+	}
+	if topSDK != "" {
+		out = append(out, "Game SDK '"+topSDK+"' was blocked "+itoa(topSDKCount)+
+			" times — consider enabling the graceful-ad-response mode to prevent crashes.")
+	}
+
+	// Generic reminder if buffer is filling up.
+	if e.size >= e.cap-100 {
+		out = append(out, "Forensic buffer is near capacity — old traces are being overwritten.")
+	}
+
+	// Always include at least one entry so the UI has something to render.
+	if len(out) == 0 {
+		out = append(out, "No forensic issues detected. Smart Cascade is operating normally.")
+	}
+	return out
 }
 
-func (r *Recorder) Stats() Stats {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s := Stats{TotalTraces: len(r.traces), UniqueMissed: len(r.missIndex)}
-	for _, t := range r.traces {
-		if t.FinalBlock {
-			s.TotalBlocked++
-		} else {
-			missed := false
-			for _, lr := range t.Results {
-				if lr.WouldBlock {
-					missed = true
-					break
-				}
-			}
-			if missed {
-				s.TotalMissed++
-			}
-		}
+// itoa is a tiny strconv.Itoa-free helper to keep the package dependency
+// surface minimal.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
 	}
-	// Find top suggested layer.
-	layerCounts := map[Layer]int{}
-	for domain := range r.missIndex {
-		for i := len(r.traces) - 1; i >= 0; i-- {
-			t := r.traces[i]
-			if t.Domain == domain {
-				for _, lr := range t.Results {
-					if lr.WouldBlock {
-						layerCounts[lr.Layer]++
-						break
-					}
-				}
-				break
-			}
-		}
+	neg := false
+	if n < 0 {
+		neg = true
+		n = -n
 	}
-	max := 0
-	for l, c := range layerCounts {
-		if c > max {
-			max = c
-			s.TopFixLayer = l
-		}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
 	}
-	return s
-}
-
-// Clear resets the recorder (e.g., user tapped "clear logs").
-func (r *Recorder) Clear() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.traces = r.traces[:0]
-	r.missIndex = make(map[string]int)
-	r.nextID = 0
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
 }

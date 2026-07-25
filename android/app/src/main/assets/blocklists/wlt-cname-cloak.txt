@@ -1,22 +1,126 @@
-# WLT CNAME Cloaking Database
-# Domains that, when they appear as a CNAME target in a DNS response, indicate
-# the original query was CNAME-cloaked tracking. The original (legit-looking)
-# domain will be blocked even if it's not in any other list.
+# ============================================================
+# WLT CNAME Cloaking Blocklist
+# ------------------------------------------------------------
+# These are tracker CNAME targets that legitimate first-party
+# domains get redirected to for tracking. The Go engine
+# inspects CNAME chains and the Kotlin engine checks these
+# targets.
 #
-# Sources: AdGuard CNAME list, NextDNS CNAME list, Brave uncloaking list.
-ea-cdn.com
-tags.tiqcdn.com
+# When a request for (e.g.) stats.example.com resolves via
+# CNAME to edge.fullstory.com, the engine must block even
+# though the queried name was first-party.
+#
+# Expanded with NextDNS (92 domains) + AdGuard parent domains
+# covering 100,082 CNAME cloaked subdomains via suffix matching.
+# Total: 55 parent domains
+# ============================================================
+
+# === FULLSTORY ===
+edge.fullstory.com
+edge-fs.fullstory.com
+cx.fullstory.com
+fs-cdn.fullstory.com
+
+# === EDGEKEY / AKAMAI ANALYTICS ===
 analytics.edgekey.net
-e9fd8b8d8a.akamaized.net
-cdn.cxense.com
-metrics.beyondwords.io
-data.cnn.io
-analytics.sitewit.com
-a0153117.akstat.org
-cdn.adjust.com
-d1sq3cqt4mu0m3.cloudfront.net
-d2in7p5stv4dci.cloudfront.net
-d1xt5lwg2po4cm.cloudfront.net
-d2nuvwlgc133y8.cloudfront.net
-d1r75t3pc1sqeh.cloudfront.net
-d2t77q05qgn1bn.cloudfront.net
+analytics-edgekey.net
+
+# === KEYWEE ===
+cdn.metrics.keywee.co
+
+# === OPTIMIZELY ===
+logx.optimizely.com
+cdn.optimizely.com
+
+# === CRITEO ===
+data.criteo.com
+widget.criteo.com
+dnsdelegation.io
+storetail.io
+
+# === TIKTOK ===
+analytics.tiktok.com
+
+# === ADSRVR (TRADEDESK) ===
+insights.adsrvr.org
+tag.adsrvr.org
+
+# === BRANCH ===
+cdn.branch.io
+data2.branch.io
+thirdparty.bnc.lt
+
+# === CRASHLYTICS ===
+e.crashlytics.com
+settings.crashlytics.com
+
+# === EULERIAN (French tracker) ===
+eulerian.net
+
+# === AT INTERNET (formerly XiTi) ===
+at-o.net
+
+# === KEYADE ===
+k.keyade.com
+k.madmetrics.com
+
+# === ADOBE EXPERIENCE CLOUD (formerly Omniture) ===
+2o7.net
+data.adobedc.net
+sc.adobedc.net
+sc.omtrdc.net
+tt.omtrdc.net
+
+# === COMMANDERS ACT ===
+tagcommander.com
+
+# === WIZALY ===
+wizaly.com
+
+# === INGENIOUS TECHNOLOGIES ===
+affex.org
+
+# === WEBTREKK ===
+webtrekk.net
+wt-eu02.net
+
+# === ONEHUB ===
+oghub.io
+
+# === BP01 ===
+tracking.bp01.net
+
+# === A8 (Japanese) ===
+trck.a8.net
+mm.actionlink.jp
+
+# === EBIS (Japanese) ===
+cname.ebis.ne.jp
+
+# === ACT-ON ===
+actonservice.com
+actonsoftware.com
+
+# === DATAUNLOCKER ===
+ddns.dataunlocker.com
+
+# === FATHOM ANALYTICS ===
+starman.fathomdns.com
+
+# === ADOBE JAPAN ===
+ad-cloud.jp
+
+# === ELOQUA (Oracle) ===
+hs.eloqua.com
+
+# === PLAUSIBLE (self-hosted) ===
+custom.plausible.io
+
+# === PARDOT (Salesforce) ===
+go.pardot.com
+
+# === TRAFFICMANAGER ===
+ghochv3eng.trafficmanager.net
+
+# === TRACEDOCK (AWS ELB) ===
+a351fec2c318c11ea9b9b0a0ae18fb0b-1529426863.eu-central-1.elb.amazonaws.com

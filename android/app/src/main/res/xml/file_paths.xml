@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <cache-path name="shared_ca" path="shared_ca/" />
-    <files-path name="internal" path="." />
+<!-- FileProvider paths for CA cert export. cache-path and files-path cover
+     the two locations CaCertHelper may write to. external-cache-path is
+     included for legacy export flows on pre-Q Android. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+    <files-path name="certs" path="certs/" />
+    <external-cache-path name="external_cache" path="." />
 </paths>

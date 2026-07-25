@@ -1,204 +1,171 @@
 package engine
 
 import (
-	"fmt"
 	"testing"
 )
 
-// Real ad domains from major ad networks
-var realAdDomains = []string{
-	// Google AdMob/AdSense/DoubleClick
-	"pagead2.googlesyndication.com",
-	"googleads.g.doubleclick.net",
-	"ad.doubleclick.net",
-	"adclick.g.doubleclick.net",
-	"adservice.google.com",
-	"pubads.g.doubleclick.net",
-	"admob.google.com",
-	"googleads4.g.doubleclick.net",
-	// Unity Ads
-	"unityads.unity3d.com",
-	"ads.unityads.unity3d.com",
-	"config.unityads.unity3d.com",
-	"cdp.cloud.unity3d.com",
-	// AppLovin
-	"rt.applovin.com",
-	"ms.applovin.com",
-	"vid.applovin.com",
-	// ironSource
-	"api.ironsrc.com",
-	"events.ironsrc.com",
-	// Chartboost
-	"live.chartboost.com",
-	"api.chartboost.com",
-	// Vungle
-	"api.vungle.com",
-	"events.vungle.com",
-	// Meta
-	"an.facebook.com",
-	"ads.facebook.com",
-	// Others
-	"ads.adcolony.com",
-	"api.mintegral.com",
-	"engine.fyber.com",
-	"connect.tapjoy.com",
-	"api.inmobi.com",
-	// Attribution SDKs
-	"events.appsflyer.com",
-	"app.adjust.com",
-	"api.branch.io",
-}
-
-// Legitimate domains that must NOT be blocked
-var legitDomains = []string{
-	"www.google.com",
-	"mail.google.com",
-	"drive.google.com",
-	"maps.google.com",
-	"play.google.com",
-	"www.youtube.com",
-	"github.com",
-	"stackoverflow.com",
-	"wikipedia.org",
-	"reddit.com",
-	"twitter.com",
-	"linkedin.com",
-	"www.chase.com",
-	"www.paypal.com",
-	"www.visa.com",
-	"www.mastercard.com",
-	"apple.com",
-	"icloud.com",
-	"microsoft.com",
-	"office.com",
-	"amazon.com",
-	"netflix.com",
-	"spotify.com",
-	"steampowered.com",
-}
-
-// DoH bypass domains that SHOULD be blocked
-var dohBypassDomains = []string{
-	"dns.google",
-	"cloudflare-dns.com",
-	"dns.quad9.net",
-	"doh.opendns.com",
-	"dns.adguard.com",
-}
-
-func TestRealAdDomainsBlocked(t *testing.T) {
+func TestCheckDNSBlock(t *testing.T) {
 	e := New()
-	// Load the same blocklist the app uses
-	for _, d := range realAdDomains {
-		e.AddBlockDomain(d)
-	}
+	e.AddBlockDomain("ads.example.com")
+	e.AddBlockDomain("tracker.evil.net")
 
-	blocked := 0
-	for _, d := range realAdDomains {
-		if e.ShouldBlock(d) {
-			blocked++
-		} else {
-			t.Errorf("FAIL: ad domain NOT blocked: %s", d)
-		}
+	res := e.CheckDNS("ads.example.com")
+	if res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS(ads.example.com) allowed, want blocked")
 	}
-	t.Logf("Ad domains blocked: %d/%d (%.1f%%)", blocked, len(realAdDomains), float64(blocked)/float64(len(realAdDomains))*100)
-}
-
-func TestLegitimateDomainsNotBlocked(t *testing.T) {
-	e := New()
-	for _, d := range realAdDomains {
-		e.AddBlockDomain(d)
-	}
-	// Add allowlist for some
-	e.AddAllowDomain("google.com")
-	e.AddAllowDomain("chase.com")
-	e.AddAllowDomain("paypal.com")
-
-	falsePositives := 0
-	for _, d := range legitDomains {
-		if e.ShouldBlock(d) {
-			t.Errorf("FALSE POSITIVE: legitimate domain blocked: %s", d)
-			falsePositives++
-		}
-	}
-	t.Logf("False positives: %d/%d", falsePositives, len(legitDomains))
-}
-
-func TestDoHBypassBlocked(t *testing.T) {
-	e := New()
-	// DoH bypass domains should be in the blocklist
-	for _, d := range dohBypassDomains {
-		e.AddBlockDomain(d)
-	}
-
-	blocked := 0
-	for _, d := range dohBypassDomains {
-		if e.ShouldBlock(d) {
-			blocked++
-		}
-	}
-	if blocked != len(dohBypassDomains) {
-		t.Errorf("DoH bypass domains blocked: %d/%d", blocked, len(dohBypassDomains))
-	}
-	t.Logf("DoH bypass domains blocked: %d/%d", blocked, len(dohBypassDomains))
-}
-
-func TestWildcardSubdomains(t *testing.T) {
-	e := New()
-	e.AddBlockDomain("doubleclick.net")
-
-	subdomains := []string{
-		"ad.doubleclick.net",
-		"stats.doubleclick.net",
-		"a.b.c.doubleclick.net",
-	}
-	for _, d := range subdomains {
-		if !e.ShouldBlock(d) {
-			t.Errorf("Wildcard subdomain NOT blocked: %s", d)
-		}
+	if res.Reason == "" {
+		t.Errorf("Reason should not be empty on block")
 	}
 }
 
-func TestStatsAccuracy(t *testing.T) {
+func TestCheckDNSBlockWildcard(t *testing.T) {
 	e := New()
-	e.AddBlockDomain("ad.example.com")
-	e.AddAllowDomain("ok.example.com")
-
-	e.ShouldBlock("ad.example.com")  // blocked
-	e.ShouldBlock("ad.example.com")  // blocked
-	e.ShouldBlock("ok.example.com")  // allowed
-	e.ShouldBlock("unknown.com")     // allowed (not in any list)
-
-	if e.TotalBlocked() != 2 {
-		t.Errorf("TotalBlocked = %d, want 2", e.TotalBlocked())
+	e.AddBlockDomain("*.evil.net")
+	// Wildcard matches strict subdomain.
+	if res := e.CheckDNS("sub.evil.net"); res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS(sub.evil.net) allowed, want blocked (wildcard)")
 	}
-	if e.TotalAllowed() != 2 {
-		t.Errorf("TotalAllowed = %d, want 2", e.TotalAllowed())
+	// Wildcard does NOT match the parent itself.
+	if res := e.CheckDNS("evil.net"); res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS(evil.net) = %v, want Allow (wildcard does not match parent)", res.Decision)
 	}
 }
 
-func TestBlockRateReport(t *testing.T) {
+func TestCheckDNSAllow(t *testing.T) {
 	e := New()
-	for _, d := range realAdDomains {
-		e.AddBlockDomain(d)
+	e.AddAllowDomain("banking.example.com")
+	if res := e.CheckDNS("banking.example.com"); res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS(banking.example.com) = %v, want Allow", res.Decision)
 	}
+	if res := e.CheckDNS("sub.banking.example.com"); res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS(sub.banking.example.com) = %v, want Allow (suffix)", res.Decision)
+	}
+}
 
-	totalQueries := 0
-	totalBlocked := 0
-	for _, d := range realAdDomains {
-		totalQueries++
-		if e.ShouldBlock(d) { totalBlocked++ }
+func TestCheckDNSAllowlistOverridesBlock(t *testing.T) {
+	e := New()
+	e.AddBlockDomain("example.com")
+	e.AddAllowDomain("allow.example.com")
+	// allow.example.com is a subdomain of example.com — allowlist wins.
+	if res := e.CheckDNS("allow.example.com"); res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS(allow.example.com) = %v, want Allow (allowlist overrides blocklist)", res.Decision)
 	}
-	for _, d := range legitDomains {
-		totalQueries++
-		if e.ShouldBlock(d) { totalBlocked++ }
+	// Other subdomains still blocked.
+	if res := e.CheckDNS("other.example.com"); res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS(other.example.com) allowed, want blocked")
 	}
+}
 
-	rate := float64(totalBlocked) / float64(totalQueries) * 100
-	fmt.Printf("\n=== BLOCK RATE REPORT ===\n")
-	fmt.Printf("Total queries: %d\n", totalQueries)
-	fmt.Printf("Blocked: %d\n", totalBlocked)
-	fmt.Printf("Block rate: %.1f%%\n", rate)
-	fmt.Printf("False positives: 0 (all legit domains allowed)\n")
-	fmt.Printf("========================\n\n")
+func TestCheckDNSDenylistOverridesAllow(t *testing.T) {
+	e := New()
+	e.AddAllowDomain("example.com")
+	e.AddDenyDomain("evil.example.com")
+	// Denylist wins over allowlist.
+	if res := e.CheckDNS("evil.example.com"); res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS(evil.example.com) allowed, want blocked (denylist overrides allowlist)")
+	}
+}
+
+func TestCheckDNSGameSDK(t *testing.T) {
+	e := New()
+	res := e.CheckDNS("pagead2.googlesyndication.com")
+	if res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS(AdMob domain) allowed, want blocked by Game SDK")
+	}
+	if res.SDK != "AdMob" {
+		t.Errorf("CheckDNS(AdMob domain) SDK = %q, want AdMob", res.SDK)
+	}
+}
+
+func TestCheckDNSNoMatch(t *testing.T) {
+	e := New()
+	res := e.CheckDNS("totally-unknown-domain.example")
+	if res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS(unknown) = %v, want Allow", res.Decision)
+	}
+}
+
+func TestStats(t *testing.T) {
+	e := New()
+	e.AddBlockDomain("blocked.example.com")
+	e.AddAllowDomain("allowed.example.com")
+	for i := 0; i < 10; i++ {
+		e.CheckDNS("blocked.example.com")
+	}
+	for i := 0; i < 5; i++ {
+		e.CheckDNS("allowed.example.com")
+	}
+	for i := 0; i < 3; i++ {
+		e.CheckDNS("unknown.example")
+	}
+	snap := e.Stats()
+	if snap.TotalQueries != 18 {
+		t.Errorf("TotalQueries = %d, want 18", snap.TotalQueries)
+	}
+	if snap.TotalBlocked != 10 {
+		t.Errorf("TotalBlocked = %d, want 10", snap.TotalBlocked)
+	}
+	if snap.TotalAllowed != 8 {
+		t.Errorf("TotalAllowed = %d, want 8", snap.TotalAllowed)
+	}
+	// Layer counter for DNS should equal total queries.
+	if snap.Layer[LayerDNS] != 18 {
+		t.Errorf("Layer[DNS] = %d, want 18", snap.Layer[LayerDNS])
+	}
+	// Top blocked should include our blocked domain.
+	if snap.TopBlocked["blocked.example.com"] != 10 {
+		t.Errorf("TopBlocked[blocked.example.com] = %d, want 10", snap.TopBlocked["blocked.example.com"])
+	}
+}
+
+func TestLayerToggle(t *testing.T) {
+	e := New()
+	e.AddBlockDomain("ads.example.com")
+	// Disable DNS layer — should allow even blocked domains.
+	e.SetLayerEnabled(LayerDNS, false)
+	if res := e.CheckDNS("ads.example.com"); res.Decision != DecisionAllow {
+		t.Errorf("CheckDNS with DNS layer disabled = %v, want Allow", res.Decision)
+	}
+	// Re-enable — should block again.
+	e.SetLayerEnabled(LayerDNS, true)
+	if res := e.CheckDNS("ads.example.com"); res.Decision == DecisionAllow {
+		t.Errorf("CheckDNS with DNS layer re-enabled allowed, want blocked")
+	}
+}
+
+func TestCheckSNI(t *testing.T) {
+	e := New()
+	e.AddBlockDomain("ads.example.com")
+	res := e.CheckSNI("ads.example.com")
+	if res.Decision == DecisionAllow {
+		t.Errorf("CheckSNI(ads.example.com) allowed, want blocked")
+	}
+	if res.Layer != LayerSNI {
+		t.Errorf("CheckSNI Layer = %d, want %d", res.Layer, LayerSNI)
+	}
+}
+
+func TestCheckHTTPS(t *testing.T) {
+	e := New()
+	e.AddBlockDomain("ads.example.com")
+	res := e.CheckHTTPS("ads.example.com", "/banner.js")
+	if res.Decision == DecisionAllow {
+		t.Errorf("CheckHTTPS(ads.example.com) allowed, want blocked")
+	}
+	if res.Layer != LayerHTTPS {
+		t.Errorf("CheckHTTPS Layer = %d, want %d", res.Layer, LayerHTTPS)
+	}
+}
+
+func TestCNAMECloak(t *testing.T) {
+	e := New()
+	e.AddCNAMECloakTarget("real-tracker.evil.net")
+	// benign.example.com resolves (via CNAME) to real-tracker.evil.net.
+	res := e.CheckDNSWithCNAMEs("benign.example.com", []string{"real-tracker.evil.net"})
+	if res.Decision == DecisionAllow {
+		t.Errorf("CheckDNSWithCNAMEs allowed a cloaked domain, want blocked")
+	}
+	if res.Reason == "" {
+		t.Errorf("Reason should not be empty on CNAME-cloak block")
+	}
 }

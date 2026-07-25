@@ -1,27 +1,44 @@
-# WLT Spotify Ad Domains Blocklist
-# Blocks Spotify ad/tracking endpoints at DNS level.
-# Note: Same-domain audio ads need Phase 3 HTTPS MITM + scriptlets.
+# ============================================================
+# WLT Spotify Ads Blocklist
+# ------------------------------------------------------------
+# Spotify ad-serving, telemetry, crash reporting, and partner
+# audio-ad domains. Created in Task 31 alongside the 3 Spotify
+# scriptlets (spotify-ad-intercept, spotify-feature-flags,
+# spotify-audio-ad-block).
+#
+# HONEST LIMIT: The native Spotify app streams audio ads from
+# the same CDN as audio content (spclient.wg.spotify.com), so
+# pure DNS blocking cannot stop in-app audio ads without
+# breaking playback. ReVanced/xManager APK patching is the
+# only fully effective route. DNS blocking kills the tracking
+# surface and the dedicated ad endpoints listed below.
+# ============================================================
 
-# Spotify Ad Serving
-ads-he.spotify.com
+# === AD-SERVING ENDPOINTS ===
 ads.spotify.com
-adcampaign.spotify.com
+adtracker.spotify.com
+audio-spotify.ads.oath.com
 ads-fa.spotify.com
-ads-sp.spotify.com
+ads-ln.spotify.com
+ads-nxs.spotify.com
+ads-sr.spotify.com
+ads-ak.spotify.com
+ads-va.spotify.com
+ads-pa.spotify.com
 
-# Spotify Tracking/Analytics
+# === TELEMETRY ===
 log.spotify.com
-spotifylogger.com
-adeventtracker.spotify.com
-ads-tracker.spotify.com
+apresolve.spotify.com
+mobs.spotify.com
+merge.spotify.com
+upgrade.spotify.com
 
-# Spotify Telemetry
-pushka.spotify.com
-countess.spotify.com
-ef1.spotify.com
-ef2.spotify.com
-ef3.spotify.com
-ef4.spotify.com
-crashdump.spotify.com
-ue1.spotify.com
-ue2.spotify.com
+# === CRASH REPORTING ===
+mobile-crash.spotify.com
+spclient.wg.spotify.com
+
+# === PARTNER ADS / AUDIO AD EDGES ===
+partnerads.spotify.com
+audio-ad.spotify.com
+audio-ak.spotify.com
+audio-fa.spotify.com

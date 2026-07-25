@@ -1,23 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_launcher_foreground: a shield with a block symbol in the middle.
+     Uses a 108x108dp viewport (adaptive icon foreground standard). The
+     safe zone is the inner 72x72dp; outer 18dp on each side is for the
+     system to apply parallax/trim. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield background -->
-    <path
-        android:fillColor="#FF00C896"
-        android:pathData="M54,18 L82,30 L82,54 C82,72 70,84 54,90 C38,84 26,72 26,54 L26,30 Z" />
-    <!-- Inner shield highlight -->
+
+    <!-- Shield outline. Path approximates a classic shield silhouette
+         centered in the 108dp viewport. -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:fillAlpha="0.25"
-        android:pathData="M54,24 L76,33 L76,54 C76,68 67,78 54,83 C41,78 32,68 32,54 L32,33 Z" />
-    <!-- Block symbol (circle with line) -->
+        android:pathData="M54,22
+            L84,32
+            L84,54
+            C84,72 72,84 54,90
+            C36,84 24,72 24,54
+            L24,32
+            Z" />
+
+    <!-- Block symbol in the center — a circle with a diagonal slash. -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,42 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+        android:fillColor="#FF0F7B6C"
+        android:pathData="M54,40
+            m-14,0
+            a14,14 0 1,0 28,0
+            a14,14 0 1,0 -28,0
+            Z" />
     <path
-        android:strokeColor="#FF00C896"
+        android:strokeColor="#FFFFFFFF"
         android:strokeWidth="3"
-        android:pathData="M45,51 L63,33" />
+        android:pathData="M44,30 L64,50" />
 </vector>

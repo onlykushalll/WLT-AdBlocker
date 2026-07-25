@@ -1,121 +1,314 @@
-# WLT Additional Tracker/Analytics Domains
-# Based on AdGuard 2025 tracker report + HaGeZi research
-# These are the top tracker domains NOT already in wlt-game-ads.txt
+# ============================================================
+# WLT Trackers Blocklist
+# ------------------------------------------------------------
+# Analytics, attribution, crash/telemetry, and general
+# cross-app tracking SDK endpoints. Built in Task 36.
+#
+# Covers Google, Meta, Microsoft, Amazon ad networks;
+# mobile attribution SDKs (AppsFlyer, Adjust, Branch,
+# Kochava, Singular, Tenjin); crash/telemetry SDKs (Sentry,
+# Crashlytics, Firebase, Localytics, Mixpanel, Segment,
+# Amplitude, Heap, Matomo, Piwik, Leanplum, Swrve);
+# and a tail of other analytics (Flurry, Yandex, etc.).
+# ============================================================
 
-# Google
+# === GOOGLE ===
+www.google-analytics.com
+ssl.google-analytics.com
+google-analytics.com
+analytics.google.com
+tagmanager.google.com
 googletagmanager.com
-google.com/pagead
+googletagservices.com
+www.googletagmanager.com
+www.googletagservices.com
 adservice.google.com
-app-measurement.com
-firebaseinstallations.googleapis.com
-crashlytics.googleapis.com
-firebaseremoteconfig.googleapis.com
-cloudconfig.googleapis.com
-doubleclick-bygoogle.com
+adsense.google.com
+doubleclickbygoogle.com
+doubleclick.com
+stats.g.doubleclick.net
+ads.google.com
 
-# Meta/Facebook
+# === META / MICROSOFT ===
 connect.facebook.net
 graph.facebook.com
+www.facebook.com
 pixel.facebook.com
 analytics.facebook.com
-fbanalytics.com
-fb.me
-fbsbx.com
+bat.bing.com
+c.bing.com
+c1.microsoft.com
+adsymptotic.com
+tagmicrosoft.com
+clarity.ms
 
-# Amazon
-amazon-adsystem.com
+# === AMAZON ===
 aax.amazon-adsystem.com
 amzn.to
-assoc-amazon.com
+amazon-adsystem.com
+aps.amazon.com
+aan.amazon.com
 
-# Microsoft
-bat.bing.com
-clarity.ms
-browser.events.data.microsoft.com
-telemetry.microsoft.com
-vortex.data.microsoft.com
-
-# Analytics/Tracking
-scorecardresearch.com
-quantserve.com
-quantcount.com
-comscore.com
-nr-data.net
-newrelic.com
-mixpanel.com
-amplitude.com
-segment.io
-segment.com
-hotjar.com
-fullstory.com
-logrocket.com
-mouseflow.com
-chartbeat.com
-chartbeat.net
-parsely.com
-parsely-key.com
-chartbeat.com
-
-# Ad Networks
-adnxs.com
-rubiconproject.com
-pubmatic.com
-criteo.com
-criteo.net
-openx.net
-contextweb.com
-spotx.tv
-spotxchange.com
-triplelift.com
-taboola.com
-outbrain.com
-mgid.com
-revcontent.com
-adsterra.com
-propellerads.com
-popads.net
-popcash.net
-admatic.com
-adform.net
-adform.com
-serving-sys.com
-demdex.net
-ds.waterfrontmedia.com
-adsymptotic.com
-casalemedia.com
-moatads.com
-moatpixel.com
-serving-sys.com
-
-# Mobile Attribution/Deep Linking
-appsflyer.com
+# === ATTRIBUTION SDKS ===
+appsflyersdk.com
+api.appsflyer.com
+events.appsflyer.com
+register.appsflyer.com
+app.appsflyer.com
+cdn.appsflyer.com
 adjust.com
+app.adjust.com
+app.adjust.net
+app.adjust.io
 adjust.net
 branch.io
+api.branch.io
+cdn.branch.io
 kochava.com
+api.kochava.com
+tracker.kochava.com
 singular.net
+api.singular.net
 tenjin.com
-appsflyersdk.com
- Attribution.com
-swrve.com
-localytics.com
+api.tenjin.com
+attribution.singular.net
+attribution-api.kochava.com
 
-# Push Notification Analytics
-onesignal.com
-pushwoosh.com
-urbanairship.com
-firebasecloudmessaging.googleapis.com
-
-# Crash/Telemetry (privacy-invasive)
+# === CRASH / TELEMETRY SDKs ===
 sentry.io
-bugsnag.com
-crashlytics.googleapis.com
-smartbear.com
-raygun.io
+crashlytics.com
+api.crashlytics.com
+mobile.crashlytics.com
+e.crashlytics.com
+settings.crashlytics.com
+firebaseinstallations.googleapis.com
+firebaselogging.googleapis.com
+firebaseremoteconfig.googleapis.com
+firebase-settings.crashlytics.com
+analytics.localytics.com
+api.localytics.com
+mobile.localytics.com
+web.localytics.com
+api.mixpanel.com
+api.segment.io
+api.amplitude.com
+api2.amplitude.com
+api.heapanalytics.com
+heaps.io
+api.heaps.io
+matomo.org
+piwik.org
+api.leanplum.com
+www.leanplum.com
+api.swrve.com
+cdn.swrve.com
 
-# IoT/Smart Home Telemetry
-device-metrics-us.amazon.com
-device-metrics-us-2.amazon.com
-unagi-na.amazon.com
-unagi.amazon.com
- *.device-metrics-us.amazon.com
+# === OTHER ANALYTICS ===
+flurry.com
+data.flurry.com
+ads.flurry.com
+metrics.icloud.com
+api.mobileanalytics.yandex.com
+appmetrica.yandex.com
+startup.mobile.yandex.net
+app-measurement.com
+api.app-measurement.com
+firebaseapp.com
+gcrn.io
+googleplex.com
+ssl.googleplex.com
+api.calendly.com
+piwik.pro
+config-cdn.urbanairship.com
+device-api.urbanairship.com
+api.urbanairship.com
+analytics.urbanairship.com
+api.tune.com
+go.tune.com
+metrics.tune.com
+ws.mobile.vtex.com
+api2.branch.io
+
+
+# === 2025 New Tracker Domains (from AdGuard 2025 report) ===
+
+# Retail media networks (Amazon, Walmart, Criteo)
+aax-us-east.amazon-adsystem.com
+aax-us-west.amazon-adsystem.com
+aax-eu.amazon-adsystem.com
+aps.amazon.com
+criteo.com
+widget.criteo.com
+bidder.criteo.com
+cas.criteo.com
+sslwidget.criteo.com
+retail-sector.criteo.com
+advertisers.walmart.com
+adtech.walmart.com
+dsp.walmart.com
+
+# ChatGPT ads / AI ad networks
+ads.openai.com
+tracking.openai.com
+analytics.openai.com
+
+# Meta Threads
+threads.net
+threads.api.instagram.com
+burp.threads.net
+
+# TikTok 2025 expansion
+business-api.tiktok.com
+analytics-va.tiktok.com
+log-sg.tiktokv.com
+ads-sg.tiktok.com
+mssdk-sg.tiktokv.com
+api-h2.tiktokv.com
+
+# Google Privacy Sandbox / Topics API
+privacy-sandbox.cloudflare.com
+adservice.privacysandbox.com
+topics-sandbox.google.com
+
+# Microsoft Clarity
+clarity.ms
+www.clarity.ms
+p.clarity.ms
+c.clarity.ms
+
+# LinkedIn Ads
+px.ads.linkedin.com
+snap.licdn.com
+ads.linkedin.com
+
+# Pinterest Ads
+ct.pinterest.com
+ads.pinterest.com
+trk.pinterest.com
+
+# Reddit Ads
+events.reddit.com
+ads.reddit.com
+o.reddit.com
+
+# Discord Ads (new 2025)
+discord.com/api/v9/science
+discord.com/tracking
+
+# Salesforce DMP
+everestjs.segments.com
+cdn.everestjs.net
+
+# OneTrust cookie consent tracking
+cdn.cookielaw.org
+geolocation.onetrust.com
+cookie-cdn.cookiepro.com
+
+# Tealium
+tags.tiqcdn.com
+collect.tealiumiq.com
+
+# SessionCam / FullStory 2025
+storage.sessioncam.com
+cdn.sessioncam.com
+t.fullstory.com
+opt-fullstory.com
+
+# === 2025 NEW TRACKER DOMAINS (from deep research) ===
+
+# Microsoft Clarity expansion
+claritydk.com
+fpcdn.io
+
+# LinkedIn Ads expansion
+touchpoint.linkedin.com
+conversion.linkedin.com
+
+# Pinterest Ads expansion
+tag.pinterest.com
+analytics.pinterest.com
+
+# Reddit Ads expansion
+alb.reddit.com
+external-analytics.reddit.com
+
+# Discord Ads expansion
+discord.com/api/v9/tracing
+
+# X/Twitter Ads expansion
+pa.ads.twitter.com
+p.ads.twitter.com
+t.co/tracking
+analytics.x.com
+ads.x.com
+
+# Criteo expansion
+ar.criteo.net
+lg2.criteo.net
+igw.criteo.com
+beacon.criteo.com
+tracking.criteo.com
+
+# Amazon Retail Ads
+advertising.amazon.com
+ads.amazon.com
+
+# Affiliate tracking
+cj.com
+www.cj.com
+epadmission.com
+emjcd.com
+anrdoezrs.net
+awin.com
+www.awin.com
+win1.com
+awin1.com
+rakutenadvertising.com
+shareasale.com
+www.shareasale.com
+api.shareasale.com
+partnerstack.com
+api.partnerstack.com
+rover.ebay.com
+
+# Attribution SDK expansion
+segment.appsflyer.com
+sdkext.appsflyer.com
+impressions.appsflyer.com
+is.adjust.com
+app.adjust.world
+link.branch.io
+branch-staging.io
+impressions.kochava.com
+control.kochava.com
+sdk-api-v1.singular.net
+app.singular.net
+rt.tenjin.com
+track.tenjin.com
+
+# Fingerprinting domains
+fingerprint.com
+fpjs.io
+pixel.advertising.com
+mparticle.com
+ipsf.connect.com
+device-id.qualtrics.com
+device-fingerprint.siftscience.com
+api.sift.com
+
+# Residential proxy SDKs (smart TV scandal)
+brightdata.com
+smartproxy.com
+oxylabs.com
+geosurf.com
+stormproxies.com
+
+# AI ads
+oaiusercontent.com
+perplexity.ai
+api.perplexity.ai
+
+# ODoH proxies
+odoh.cloudflare-dns.com
+odoh.nextdns.io
+odoh.dns0.eu

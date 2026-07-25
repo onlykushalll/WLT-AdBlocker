@@ -1,166 +1,251 @@
-// Package bloom implements a counting Bloom filter for fast domain membership
-// pre-checking. Used as a negative filter before the trie walk: if the bloom
-// filter says "definitely not present", we skip the trie lookup entirely.
+// Package bloom implements a counting bloom filter with 4-bit counters and
+// maphash-derived hashing. It is "suffix-aware": Add inserts every parent
+// suffix of a domain so that a single Contains query for any subdomain of a
+// blocked parent returns true. Remove decrements the counters (so user rules
+// can be un-done at runtime).
 //
-// Inspired by HostShield's bloom + trie + hashset triple-lookup pattern.
-//
-// We use a counting bloom filter (4-bit counters) so that domains can be
-// removed dynamically (user allowlist / denylist changes) without rebuilding.
+// The bloom filter is used as a fast negative pre-check in front of the
+// slower trie — a Contains==false answer is always accurate, while
+// Contains==true is probabilistic and must be confirmed by the trie.
 package bloom
 
 import (
-	"encoding/binary"
-	"hash/maphash"
-	"math"
-	"sync"
+        "hash/maphash"
+        "strings"
+        "sync"
 )
 
-const counterBits = 4
-const counterMax = (1 << counterBits) - 1
-const countersPerByte = 8 / counterBits
+const (
+        // counterBits is the width of each counter in bits.
+        counterBits = 4
+        // counterMax is the maximum value of a 4-bit counter.
+        counterMax = (1 << counterBits) - 1 // 15
+        // numHashes is the number of independent hash functions applied.
+        numHashes = 7
+)
 
-// Filter is a counting bloom filter. Safe for concurrent use.
+// Filter is a counting bloom filter with 4-bit counters.
 type Filter struct {
-	mu       sync.RWMutex
-	counters []byte // packed 4-bit counters
-	bits     uint64 // number of 4-bit slots
-	hashes   int    // number of hash functions
-	seed     maphash.Seed
-	n        int // item count
+        mu       sync.RWMutex
+        counters []byte // packed 4-bit counters, 2 per byte
+        bits     uint64 // number of counters
+        seed     maphash.Seed
+        mask     uint64 // bits-1, only when bits is power of 2
+        pow2     bool
 }
 
-// New creates a filter sized for `n` expected items at target false-positive rate `p`.
-// Uses optimal k = ceil(-(ln p) / ln(2)) hashes and m = ceil(-n*ln p / (ln2)^2) bits.
-func New(n int, p float64) *Filter {
-	if n <= 0 {
-		n = 1000
-	}
-	if p <= 0 || p >= 1 {
-		p = 0.001 // 0.1% default FP
-	}
-	m := uint64(math.Ceil(-float64(n) * math.Log(p) / (math.Ln2 * math.Ln2)))
-	// round up to multiple of 16 for alignment
-	if m%16 != 0 {
-		m += 16 - (m % 16)
-	}
-	k := int(math.Ceil(-math.Log(p) / math.Ln2))
-	if k < 1 {
-		k = 1
-	}
-	bytes := m / countersPerByte
-	if bytes == 0 {
-		bytes = 1
-	}
-	return &Filter{
-		counters: make([]byte, bytes),
-		bits:     m,
-		hashes:   k,
-		seed:     maphash.MakeSeed(),
-	}
+// New returns a Filter sized for the given expected number of insertions
+// and the target false-positive rate. m is rounded up to a power of two.
+//
+// Because Add() expands every domain into all of its parent suffixes
+// (typically 3 per domain), the filter internally sizes itself for 3x the
+// supplied expectedItems so the realized false-positive rate tracks the
+// caller-specified target instead of being inflated by the suffix
+// expansion.
+func New(expectedItems int, falsePositiveRate float64) *Filter {
+        if expectedItems < 1 {
+                expectedItems = 1
+        }
+        if falsePositiveRate <= 0 {
+                falsePositiveRate = 0.001
+        }
+        // Account for suffix expansion: each Add() writes ~len(labels) entries.
+        const suffixExpansion = 3
+        expanded := expectedItems * suffixExpansion
+        // Optimal m: m = -n * ln(p) / (ln(2)^2)
+        // Use the standard approximation and round up to power of two for a
+        // cheap bitwise modulo.
+        m := optimalM(expanded, falsePositiveRate)
+        // Round up to power of two.
+        bits := uint64(1)
+        for bits < m {
+                bits <<= 1
+        }
+        return &Filter{
+                counters: make([]byte, (bits+1)/2),
+                bits:     bits,
+                seed:     maphash.MakeSeed(),
+                mask:     bits - 1,
+                pow2:     true,
+        }
 }
 
-// Add inserts an item.
-func (f *Filter) Add(item string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	h1, h2 := f.hashPair(item)
-	for i := 0; i < f.hashes; i++ {
-		idx := (h1 + uint64(i)*h2) % f.bits
-		f.incr(idx)
-	}
-	f.n++
+func optimalM(n int, p float64) uint64 {
+        // m = -n * ln(p) / (ln 2)^2
+        const ln2 = 0.6931471805599453
+        lnp := 0.0
+        if p > 0 {
+                // math.Log without importing math (we don't want to bloat deps).
+                // Use the standard library after all — it's stdlib.
+                lnp = negLog(p)
+        }
+        m := float64(n) * lnp / (ln2 * ln2)
+        if m < 1 {
+                m = 1
+        }
+        return uint64(m)
 }
 
-// Contains reports whether item MIGHT be in the set. False = definitely not.
-func (f *Filter) Contains(item string) bool {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	h1, h2 := f.hashPair(item)
-	for i := 0; i < f.hashes; i++ {
-		idx := (h1 + uint64(i)*h2) % f.bits
-		if f.get(idx) == 0 {
-			return false
-		}
-	}
-	return true
+// negLog returns -ln(p) for 0 < p < 1.
+func negLog(p float64) float64 {
+        // Newton series approximation for -ln(p) around p=1.
+        // For small p this converges slowly; fall back to a piecewise table.
+        if p <= 0 {
+                return 1e9
+        }
+        if p >= 1 {
+                return 0
+        }
+        // Use math.Log via a hidden import to keep precision.
+        return mathNegLog(p)
 }
 
-// Remove decrements counters. If the item was present, returns true.
-// Note: removing an item that wasn't added can corrupt the filter.
-func (f *Filter) Remove(item string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	h1, h2 := f.hashPair(item)
-	// Verify first to avoid underflow.
-	for i := 0; i < f.hashes; i++ {
-		idx := (h1 + uint64(i)*h2) % f.bits
-		if f.get(idx) == 0 {
-			return false
-		}
-	}
-	for i := 0; i < f.hashes; i++ {
-		idx := (h1 + uint64(i)*h2) % f.bits
-		f.decr(idx)
-	}
-	f.n--
-	return true
+// mathNegLog uses the math package for precision.
+func mathNegLog(p float64) float64 {
+        // inlined here to keep the public API clean
+        if p <= 0 {
+                return 1e9
+        }
+        // compute -ln(p) = ln(1/p)
+        return mathLog(1 / p)
 }
 
-// N returns the approximate number of items.
-func (f *Filter) N() int {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.n
+// mathLog delegates to the math package. We import math in math_helpers.go
+// (separate file in same package) to keep the public Filter file dependency
+// surface obvious.
+
+// hash returns the i-th hash of s, in range [0, bits).
+func (f *Filter) hash(s string, i int) uint64 {
+        var h maphash.Hash
+        h.SetSeed(f.seed)
+        _, _ = h.WriteString(s)
+        // Mix the hash index in.
+        _, _ = h.WriteString(hashSalt[i])
+        x := h.Sum64()
+        if f.pow2 {
+                return x & f.mask
+        }
+        return x % f.bits
 }
 
-// hashPair computes two base hashes using maphash (double hashing scheme).
-func (f *Filter) hashPair(item string) (uint64, uint64) {
-	var mh maphash.Hash
-	mh.SetSeed(f.seed)
-	mh.WriteString(item)
-	// Mix in length to differentiate "" vs "a" leading to same hash.
-	binary.Write(&mh, binary.LittleEndian, uint64(len(item)))
-	combined := mh.Sum64()
-	h1 := combined
-	h2 := combined>>32 | 1 // ensure h2 != 0
-	return h1, h2
+var hashSalt = [numHashes]string{
+        "#0", "#1", "#2", "#3", "#4", "#5", "#6",
 }
 
-// get returns the 4-bit counter at slot idx.
-func (f *Filter) get(idx uint64) byte {
-	byteIdx := idx / countersPerByte
-	nibble := idx % countersPerByte
-	b := f.counters[byteIdx]
-	if nibble == 0 {
-		return b & 0x0F
-	}
-	return (b >> 4) & 0x0F
+// getCounter returns the counter at index idx.
+func (f *Filter) getCounter(idx uint64) uint8 {
+        byteIdx := idx / 2
+        if idx%2 == 0 {
+                return f.counters[byteIdx] & 0x0F
+        }
+        return (f.counters[byteIdx] >> 4) & 0x0F
 }
 
-// set writes the 4-bit counter at slot idx.
-func (f *Filter) set(idx uint64, val byte) {
-	if val > counterMax {
-		val = counterMax
-	}
-	byteIdx := idx / countersPerByte
-	nibble := idx % countersPerByte
-	if nibble == 0 {
-		f.counters[byteIdx] = (f.counters[byteIdx] & 0xF0) | val
-	} else {
-		f.counters[byteIdx] = (f.counters[byteIdx] & 0x0F) | (val << 4)
-	}
+// setCounter sets the counter at index idx to v (must be 0..15).
+func (f *Filter) setCounter(idx uint64, v uint8) {
+        byteIdx := idx / 2
+        if idx%2 == 0 {
+                f.counters[byteIdx] = (f.counters[byteIdx] & 0xF0) | (v & 0x0F)
+        } else {
+                f.counters[byteIdx] = (f.counters[byteIdx] & 0x0F) | ((v & 0x0F) << 4)
+        }
 }
 
-func (f *Filter) incr(idx uint64) {
-	v := f.get(idx)
-	if v < counterMax {
-		f.set(idx, v+1)
-	}
+// Add inserts s and every parent suffix of s into the filter. This makes
+// the filter suffix-aware: a query for "sub.example.com" will return true
+// whenever "example.com" (or any other suffix) has been added.
+func (f *Filter) Add(s string) {
+        s = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(s), "."))
+        if s == "" {
+                return
+        }
+        f.mu.Lock()
+        defer f.mu.Unlock()
+        for _, suffix := range suffixes(s) {
+                f.addOnce(suffix)
+        }
 }
 
-func (f *Filter) decr(idx uint64) {
-	v := f.get(idx)
-	if v > 0 {
-		f.set(idx, v-1)
-	}
+// addOnce inserts a single domain string (no suffix expansion).
+func (f *Filter) addOnce(s string) {
+        for i := 0; i < numHashes; i++ {
+                idx := f.hash(s, i)
+                c := f.getCounter(idx)
+                if c < counterMax {
+                        f.setCounter(idx, c+1)
+                }
+        }
 }
+
+// Remove decrements the counters for s and every parent suffix of s. If any
+// counter is already 0, it remains 0 (we never underflow into 15).
+func (f *Filter) Remove(s string) {
+        s = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(s), "."))
+        if s == "" {
+                return
+        }
+        f.mu.Lock()
+        defer f.mu.Unlock()
+        for _, suffix := range suffixes(s) {
+                f.removeOnce(suffix)
+        }
+}
+
+func (f *Filter) removeOnce(s string) {
+        for i := 0; i < numHashes; i++ {
+                idx := f.hash(s, i)
+                c := f.getCounter(idx)
+                if c > 0 {
+                        f.setCounter(idx, c-1)
+                }
+        }
+}
+
+// Contains returns true if s MAY be in the filter (probabilistic). Returns
+// false if s is definitely not in the filter. Suffix-aware: a query for
+// "sub.example.com" returns true if any parent suffix ("example.com", "com")
+// has been added.
+func (f *Filter) Contains(s string) bool {
+        s = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(s), "."))
+        if s == "" {
+                return false
+        }
+        f.mu.RLock()
+        defer f.mu.RUnlock()
+        return f.containsAnySuffix(s)
+}
+
+// containsAnySuffix reports whether any suffix of s is present. Caller must
+// hold the read lock.
+func (f *Filter) containsAnySuffix(s string) bool {
+        for _, suffix := range suffixes(s) {
+                if f.containsExact(suffix) {
+                        return true
+                }
+        }
+        return false
+}
+
+// containsExact checks the bloom filter for one specific string.
+func (f *Filter) containsExact(s string) bool {
+        for i := 0; i < numHashes; i++ {
+                if f.getCounter(f.hash(s, i)) == 0 {
+                        return false
+                }
+        }
+        return true
+}
+
+// suffixes returns every suffix of s, longest first. For "a.b.com" the
+// result is ["a.b.com", "b.com", "com"].
+func suffixes(s string) []string {
+        parts := strings.Split(s, ".")
+        out := make([]string, 0, len(parts))
+        for i := 0; i < len(parts); i++ {
+                out = append(out, strings.Join(parts[i:], "."))
+        }
+        return out
+}
+
+// Bits returns the number of counters in the filter (useful for testing).
+func (f *Filter) Bits() uint64 { return f.bits }

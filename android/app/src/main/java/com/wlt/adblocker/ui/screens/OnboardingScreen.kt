@@ -8,242 +8,401 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
+/**
+ * 4-page welcome flow shown on first launch.
+ *
+ * Pages:
+ *  1. WLT intro — shield logo + "No root, no cloud, no telemetry"
+ *  2. Game Ad Intelligence — lists the 12 SDKs we detect
+ *  3. Privacy by Architecture — 5 guarantees with checkmarks
+ *  4. Smart Cascade — 4-layer defense diagram + Ad Forensics mention
+ *
+ * Navigation: Back / Next / Skip (top-right). Page indicator dots at the
+ * bottom. Final page's primary button is "Get Started" → onComplete().
+ *
+ * Uses Compose Foundation's [HorizontalPager] (NOT the Accompanist version —
+ * Accompanist has been deprecated since Compose 1.4).
+ */
 @Composable
-fun OnboardingScreen(onFinish: () -> Unit) {
-    var page by remember { mutableStateOf(0) }
-    val totalPages = 4
+fun OnboardingScreen(
+    onComplete: () -> Unit,
+) {
+    val pageCount = 4
+    val pagerState = rememberPagerState(initialPage = 0) { pageCount }
+    val coroutineScope = rememberCoroutineScope()
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        // Skip button
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            if (page < totalPages - 1) {
-                TextButton(onClick = onFinish) { Text("Skip", fontSize = 13.sp) }
-            }
-        }
-
-        // Page content
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            when (page) {
-                0 -> OnboardingPage1()
-                1 -> OnboardingPage2()
-                2 -> OnboardingPage3()
-                3 -> OnboardingPage4()
-            }
-        }
-
-        // Page indicator dots
-        Row(
-            modifier = Modifier.padding(vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
         ) {
-            for (i in 0 until totalPages) {
-                Box(
-                    modifier = Modifier
-                        .size(if (i == page) 24.dp else 8.dp, 8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (i == page) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                )
-            }
-        }
-
-        // Navigation buttons
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (page > 0) {
-                Button(
-                    onClick = { page-- },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) { Text("Back") }
-            }
-            Button(
-                onClick = {
-                    if (page < totalPages - 1) page++
-                    else onFinish()
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            // Top row: Skip button (top-right) — appears on all pages
+            // except the last.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                Text(if (page < totalPages - 1) "Next" else "Get Started", fontWeight = FontWeight.Bold)
+                if (pagerState.currentPage < pageCount - 1) {
+                    TextButton(onClick = onComplete) {
+                        Text("Skip")
+                    }
+                }
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) { page ->
+                when (page) {
+                    0 -> Page1Intro()
+                    1 -> Page2GameAdIntelligence()
+                    2 -> Page3PrivacyByArchitecture()
+                    3 -> Page4SmartCascade()
+                }
+            }
+
+            // Page indicator dots
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                repeat(pageCount) { index ->
+                    val isSelected = pagerState.currentPage == index
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(if (isSelected) 12.dp else 8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                }
+                            ),
+                    )
+                }
+            }
+
+            // Bottom navigation: Back / Next (or Get Started on last page)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (pagerState.currentPage > 0) {
+                    OutlinedButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                            }
+                        },
+                    ) { Text("Back") }
+                } else {
+                    Spacer(modifier = Modifier.width(0.dp))
+                }
+
+                if (pagerState.currentPage < pageCount - 1) {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            }
+                        },
+                    ) { Text("Next") }
+                } else {
+                    Button(onClick = onComplete) { Text("Get Started") }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun OnboardingPage1() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // Logo/shield
-        Box(
-            modifier = Modifier.size(140.dp).clip(CircleShape).background(
-                Brush.radialGradient(
-                    colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                )
-            ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.onPrimary)
-        }
-        Spacer(Modifier.height(32.dp))
-        Text("WLT Adblocker", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Production-grade ad blocking for Android.\nNo root. No cloud. No telemetry.\n100% on-device.",
-            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, lineHeight = 20.sp
-        )
-        Spacer(Modifier.height(24.dp))
-        Text("Built from 35+ adblocker analyses", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
-        Text("Synthesizing uBlock, AdGuard, Rethink, HostShield, BlockAds", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
-    }
-}
+// --- Page 1: WLT intro ---
 
 @Composable
-private fun OnboardingPage2() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Filled.SportsEsports, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.tertiary)
-        Spacer(Modifier.height(24.dp))
-        Text("Game Ad Intelligence", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Dedicated engine for mobile game ad SDKs that goes beyond static domain lists.",
-            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(24.dp))
-        FeatureRow("AdMob", "Google's dominant mobile ad network")
-        FeatureRow("Unity Ads", "Unity-based games")
-        FeatureRow("AppLovin", "MAX mediation SDK")
-        FeatureRow("ironSource", "Acquired by Unity")
-        FeatureRow("Chartboost", "Game-focused network")
-        FeatureRow("+7 more", "Vungle, Meta, AdColony, Mintegral, Fyber, Tapjoy, InMobi")
-    }
-}
-
-@Composable
-private fun OnboardingPage3() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Filled.Security, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(24.dp))
-        Text("Privacy by Architecture", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "WLT is trustworthy by design, not by policy.",
-            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(24.dp))
-        PrivacyRow("All filtering on-device", "No cloud dependency for blocking decisions")
-        PrivacyRow("Zero telemetry", "No data leaves your device, ever")
-        PrivacyRow("Open source (GPL-3.0)", "Every line auditable on GitHub")
-        PrivacyRow("Minimal permissions", "VPN + notification only")
-        PrivacyRow("No account required", "No signup, no email, no tracking")
-    }
-}
-
-@Composable
-private fun OnboardingPage4() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.secondary)
-        Spacer(Modifier.height(24.dp))
-        Text("Smart Cascade", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "4-layer defense: each layer catches what the previous one misses.",
-            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(24.dp))
-        LayerCard("Layer 1: DNS", "Blocks 85-90% — games, apps, trackers", true)
-        LayerCard("Layer 2: SNI", "Blocks 5-8% more — hardcoded IP SDKs", false)
-        LayerCard("Layer 3: HTTPS", "Blocks 3-5% more — URL patterns", false)
-        LayerCard("Layer 4: Scriptlet", "Anti-adblock + YouTube web", false)
-        Spacer(Modifier.height(16.dp))
-        Text("Ad Forensics: WLT explains why ads got through and gives one-tap fixes.",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun FeatureRow(name: String, desc: String) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), shape = RoundedCornerShape(10.dp)) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Block, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(name, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(100.dp))
-            Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PrivacyRow(title: String, desc: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun LayerCard(name: String, desc: String, active: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
+private fun Page1Intro() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (active) Icons.Filled.CheckCircle else Icons.Filled.Lock,
-                contentDescription = null,
-                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(name, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(
+            imageVector = Icons.Filled.Shield,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(96.dp),
+        )
+        Spacer(modifier = Modifier.size(24.dp))
+        Text(
+            text = "WLT-Adblocker",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        Text(
+            text = "No root. No cloud. No telemetry.",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.size(24.dp))
+        Text(
+            text = "A local VPN-based ad blocker for Android that puts " +
+                "your traffic under your control. Every DNS query your " +
+                "phone makes is filtered through your blocklists — and " +
+                "nothing leaves your device.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+    }
+}
+
+// --- Page 2: Game Ad Intelligence ---
+
+@Composable
+private fun Page2GameAdIntelligence() {
+    val sdks = listOf(
+        "AdMob", "Unity", "AppLovin", "ironSource", "Chartboost", "Vungle",
+        "Meta", "AdColony", "Mintegral", "Fyber", "Tapjoy", "InMobi",
+    )
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.SportsEsports,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        Text(
+            text = "Game Ad Intelligence",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = "WLT recognizes the 12 SDKs behind most mobile game ads — " +
+                "so even when the game is allowed to connect, we know which " +
+                "ad networks are talking and can sinkhole them surgically.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(24.dp))
+        // Render SDKs as a 3-column grid of small badges.
+        val rows = sdks.chunked(3)
+        for (row in rows) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                for (sdk in row) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = sdk,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+// --- Page 3: Privacy by Architecture ---
+
+@Composable
+private fun Page3PrivacyByArchitecture() {
+    val guarantees = listOf(
+        "DNS filtering happens locally — no upstream server sees your queries",
+        "Blocklist downloads go directly to your device, no cloud proxy",
+        "No analytics, no crash reporting, no telemetry of any kind",
+        "Query log is in-memory only — wiped on every app restart",
+        "Open source — every line of this app is auditable",
+    )
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Security,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        Text(
+            text = "Privacy by Architecture",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        for (g in guarantees) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = g,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+        }
+    }
+}
+
+// --- Page 4: Smart Cascade ---
+
+@Composable
+private fun Page4SmartCascade() {
+    val layers = listOf(
+        "DNS" to "Block by domain at the resolver level",
+        "SNI" to "Inspect TLS ClientHello to block by hostname",
+        "HTTPS" to "MITM trusted connections to prune ads (CA-gated)",
+        "Scriptlet" to "Inject anti-adblock JS into web responses",
+    )
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Shield,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        Text(
+            text = "Smart Cascade",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = "Four defense layers, each catching what the one above " +
+                "missed. Turn them on individually from Settings.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        for ((idx, pair) in layers.withIndex()) {
+            val (name, desc) = pair
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "${idx + 1}",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.size(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Ad Forensics explains every miss honestly — " +
+                    "YouTube app, cert-pinned SDKs, etc.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

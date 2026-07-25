@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.WLT" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base theme. Material3 DayNight. The actual color scheme is applied
+         in Compose via WltTheme() — this XML theme is just the splash/launch
+         theme so there's no flash of default Material3 colors before
+         Compose takes over. -->
+    <style name="Theme.WltAdblocker" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/wlt_background</item>
+        <item name="android:navigationBarColor">@color/wlt_background</item>
+        <item name="android:windowBackground">@color/wlt_background</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
     </style>
 </resources>

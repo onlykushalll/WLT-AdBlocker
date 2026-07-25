@@ -1,273 +1,468 @@
-// Package cosmetic implements DOM-level cosmetic filtering (CSS injection,
-// procedural filters, DOM surveyor) inspired by uBlock Origin's
-// cosmetic-filtering.js.
+// Package cosmetic implements the WLT CSS injection engine for the HTTPS
+// MITM proxy. The engine accepts generic selectors (low- and high-level),
+// per-site specific selectors with suffix matching, exceptions
+// (@@||example.com##.selector unhides), and procedural filters (JS-based
+// has-text / has / matches-css / remove operators from uBlock).
 //
-// Cosmetic filtering hides ad elements that remain on the page after
-// network-level blocking. This runs in the browser context via
-// Phase 3 HTTPS MITM scriptlet injection.
+// The engine produces two outputs:
 //
-// Key techniques ported from uBlock:
-//   1. CSS selector injection (display:none !important)
-//   2. Generic vs specific cosmetic rules
-//   3. DOM surveyor (auto-discover hideable elements)
-//   4. Procedural filters (:has, :has-text, :xpath)
-//   5. DOM collapser (collapse elements whose resources were blocked)
+//   - GenerateCSS(host) returns a CSS string that hides every matching
+//     selector with `display:none!important`. The string is suitable for
+//     injection into a <style> tag in the HTML response.
+//   - GenerateProceduralJS(host) returns a self-contained <script> body
+//     that walks the DOM applying the procedural filters.
+//
+// GenerateInjectionHTML(host) returns both wrapped in their respective
+// tags, suitable for direct insertion into <head>.
 package cosmetic
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 )
 
-// Engine holds cosmetic filter rules and generates CSS/JS for injection.
+// Engine is the CSS injection + procedural filter engine.
 type Engine struct {
 	mu sync.RWMutex
 
-	// Generic selectors (apply to all sites) — "Low generic" in uBlock
-	lowGeneric map[string]bool // simple class/id selectors like ".ad", "#banner"
+	// lowGenericSimple = selectors that are pure class/id (e.g. ".ad", "#ads").
+	// These get the fastest CSS injection path: a single CSS rule with
+	// many comma-separated selectors.
+	lowGenericSimple map[string]bool
 
-	// High generic — complex selectors like "div.ad-container"
+	// highGenericSimple = selectors that are attribute-only
+	// (e.g. "[data-ad]"). Still fast but slightly slower than class/id.
 	highGenericSimple map[string]bool
+
+	// highGenericComplex = selectors that combine class/id/attribute with
+	// other selectors (e.g. "div[class*='advert']").
 	highGenericComplex map[string]bool
 
-	// Site-specific selectors: hostname -> []CSS selectors
-	specificRules map[string][]string
+	// specificRules = hostSuffix -> set of selectors. Only applied when
+	// the host matches the suffix.
+	specificRules map[string]map[string]bool
 
-	// Exceptions (unhide rules): hostname -> []selectors to NOT hide
-	exceptions map[string][]string
+	// exceptions = hostSuffix -> set of selectors that should NOT be hidden
+	// even if a generic or specific rule would hide them.
+	exceptions map[string]map[string]bool
 
-	// Procedural filters (require JS, not just CSS)
-	proceduralRules map[string][]ProceduralFilter
+	// proceduralRules = hostSuffix -> set of procedural filter JS bodies.
+	proceduralRules map[string]map[string]string
 }
 
-// ProceduralFilter is a JS-based cosmetic filter (uBlock procedural cosmetics).
-type ProceduralFilter struct {
-	Selector string // CSS selector for the target element
-	Type     string // "has-text", "has", "matches-css", "xpath", "upward", "remove"
-	Arg      string // argument for the filter type
-	Action   string // "hide" or "remove"
-}
-
-// New creates an empty cosmetic engine.
+// New returns an empty Engine.
 func New() *Engine {
 	return &Engine{
-		lowGeneric:         make(map[string]bool),
+		lowGenericSimple:   make(map[string]bool),
 		highGenericSimple:  make(map[string]bool),
 		highGenericComplex: make(map[string]bool),
-		specificRules:      make(map[string][]string),
-		exceptions:         make(map[string][]string),
-		proceduralRules:    make(map[string][]ProceduralFilter),
+		specificRules:      make(map[string]map[string]bool),
+		exceptions:         make(map[string]map[string]bool),
+		proceduralRules:    make(map[string]map[string]string),
 	}
 }
 
-// AddGenericSelector adds a generic CSS selector (applies to all sites).
-// e.g., ".ad", "#banner", "div[class*='advert']"
-func (e *Engine) AddGenericSelector(selector string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	selector = strings.TrimSpace(selector)
-	if selector == "" {
+// AddGenericSelector adds a CSS selector to the generic ruleset. The
+// selector is auto-classified:
+//   - selectors matching `^(\.[\w-]+|#[\w-]+)$` (single class or id) go
+//     to lowGenericSimple.
+//   - selectors matching `^\[.+\]$` (single attribute) go to
+//     highGenericSimple.
+//   - everything else goes to highGenericComplex.
+func (e *Engine) AddGenericSelector(sel string) {
+	sel = strings.TrimSpace(sel)
+	if sel == "" {
 		return
 	}
-	// Classify: simple (class/id only) vs complex (has additional qualifiers)
-	if strings.HasPrefix(selector, ".") || strings.HasPrefix(selector, "#") {
-		if strings.ContainsAny(selector, " [>:~+") {
-			e.highGenericComplex[selector] = true
-		} else {
-			e.lowGeneric[selector] = true
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch classify(sel) {
+	case clsLowSimple:
+		e.lowGenericSimple[sel] = true
+	case clsHighSimple:
+		e.highGenericSimple[sel] = true
+	default:
+		e.highGenericComplex[sel] = true
+	}
+}
+
+// AddSpecificSelector adds a CSS selector that should only apply on hosts
+// whose domain matches hostSuffix (suffix match: "youtube.com" matches
+// "www.youtube.com" and "youtube.com" itself).
+func (e *Engine) AddSpecificSelector(hostSuffix, sel string) {
+	hostSuffix = normalizeSuffix(hostSuffix)
+	sel = strings.TrimSpace(sel)
+	if hostSuffix == "" || sel == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.specificRules[hostSuffix] == nil {
+		e.specificRules[hostSuffix] = make(map[string]bool)
+	}
+	e.specificRules[hostSuffix][sel] = true
+}
+
+// AddException records that selector should NOT be hidden on hosts matching
+// hostSuffix. This is the @@||example.com##.selector form.
+func (e *Engine) AddException(hostSuffix, sel string) {
+	hostSuffix = normalizeSuffix(hostSuffix)
+	sel = strings.TrimSpace(sel)
+	if hostSuffix == "" || sel == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exceptions[hostSuffix] == nil {
+		e.exceptions[hostSuffix] = make(map[string]bool)
+	}
+	e.exceptions[hostSuffix][sel] = true
+}
+
+// AddProceduralFilter registers a JS-based procedural filter for a host
+// suffix. The filter argument is a uBlock procedural operator expression
+// like "div.foo:has-text(/Sponsored/)" — the caller is responsible for
+// translating it to executable JS via CompileProcedural. The compiled JS
+// body is stored as a string.
+func (e *Engine) AddProceduralFilter(hostSuffix, filter string) {
+	hostSuffix = normalizeSuffix(hostSuffix)
+	filter = strings.TrimSpace(filter)
+	if hostSuffix == "" || filter == "" {
+		return
+	}
+	js := CompileProcedural(filter)
+	if js == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.proceduralRules[hostSuffix] == nil {
+		e.proceduralRules[hostSuffix] = make(map[string]string)
+	}
+	// Use the original filter text as the key so duplicate registrations
+	// are idempotent.
+	e.proceduralRules[hostSuffix][filter] = js
+}
+
+type classKind int
+
+const (
+	clsLowSimple classKind = iota
+	clsHighSimple
+	clsComplex
+)
+
+// classify inspects a CSS selector and decides which bucket it belongs to.
+func classify(sel string) classKind {
+	// Strip pseudo-element/class suffixes for classification purposes.
+	// e.g. ".ad:has-text(...)" => ".ad" is the simple part, but we treat
+	// the whole thing as complex because of the procedural suffix.
+	if strings.ContainsAny(sel, ": >+~") {
+		return clsComplex
+	}
+	if len(sel) >= 2 && sel[0] == '.' && isSimpleIdent(sel[1:]) {
+		return clsLowSimple
+	}
+	if len(sel) >= 2 && sel[0] == '#' && isSimpleIdent(sel[1:]) {
+		return clsLowSimple
+	}
+	if len(sel) >= 2 && sel[0] == '[' && sel[len(sel)-1] == ']' && !strings.ContainsAny(sel[1:len(sel)-1], " =") {
+		return clsHighSimple
+	}
+	return clsComplex
+}
+
+// isSimpleIdent returns true if s is a non-empty run of [A-Za-z0-9_-] with
+// no whitespace, brackets, or operators.
+func isSimpleIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return false
 		}
-	} else {
-		e.highGenericComplex[selector] = true
 	}
+	return true
 }
 
-// AddSpecificSelector adds a site-specific CSS selector.
-// e.g., hostname="youtube.com", selector="ytd-ad-slot-renderer"
-func (e *Engine) AddSpecificSelector(hostname, selector string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	hostname = strings.ToLower(strings.TrimSpace(hostname))
-	selector = strings.TrimSpace(selector)
-	if hostname != "" && selector != "" {
-		e.specificRules[hostname] = append(e.specificRules[hostname], selector)
+// hostMatchesSuffix returns true if host matches hostSuffix. Matching is
+// suffix-based: "youtube.com" matches "youtube.com", "www.youtube.com",
+// "m.youtube.com", but NOT "notyoutube.com".
+func hostMatchesSuffix(host, suffix string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	suffix = strings.ToLower(strings.TrimSpace(suffix))
+	if host == suffix {
+		return true
 	}
+	return strings.HasSuffix(host, "."+suffix)
 }
 
-// AddException adds an unhide rule (cosmetic exception).
-func (e *Engine) AddException(hostname, selector string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	hostname = strings.ToLower(strings.TrimSpace(hostname))
-	e.exceptions[hostname] = append(e.exceptions[hostname], selector)
+// normalizeSuffix lowercases the suffix and strips any leading "." or
+// "www." prefix.
+func normalizeSuffix(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimPrefix(s, ".")
+	return s
 }
 
-// AddProceduralFilter adds a JS-based procedural cosmetic filter.
-func (e *Engine) AddProceduralFilter(hostname string, filter ProceduralFilter) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	hostname = strings.ToLower(strings.TrimSpace(hostname))
-	e.proceduralRules[hostname] = append(e.proceduralRules[hostname], filter)
-}
-
-// GenerateCSS generates the CSS to inject for a given hostname.
-// Returns CSS text (display:none rules for matching selectors).
-func (e *Engine) GenerateCSS(hostname string) string {
+// GenerateCSS returns the CSS string (without <style> wrapper) for the
+// given host. The CSS hides every matching selector with
+// `display:none!important`.
+func (e *Engine) GenerateCSS(host string) string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	var css []string
-
-	// Low generic (always applied)
-	for sel := range e.lowGeneric {
-		css = append(css, sel+"{display:none!important;}")
+	// Collect exceptions applicable to this host.
+	except := make(map[string]bool)
+	for suffix, set := range e.exceptions {
+		if hostMatchesSuffix(host, suffix) {
+			for sel := range set {
+				except[sel] = true
+			}
+		}
 	}
 
-	// High generic simple
+	var parts []string
+
+	// Generic selectors (low simple + high simple + high complex).
+	addSel := func(sel string) {
+		if except[sel] {
+			return
+		}
+		parts = append(parts, sel)
+	}
+	for sel := range e.lowGenericSimple {
+		addSel(sel)
+	}
 	for sel := range e.highGenericSimple {
-		css = append(css, sel+"{display:none!important;}")
+		addSel(sel)
 	}
-
-	// High generic complex
 	for sel := range e.highGenericComplex {
-		css = append(css, sel+"{display:none!important;}")
+		addSel(sel)
 	}
 
-	// Site-specific
-	host := strings.ToLower(strings.TrimSpace(hostname))
-	if host != "" {
-		labels := strings.Split(host, ".")
-		for i := 0; i < len(labels)-1; i++ {
-			suffix := strings.Join(labels[i:], ".")
-			if selectors, ok := e.specificRules[suffix]; ok {
-				for _, sel := range selectors {
-					css = append(css, sel+"{display:none!important;}")
-				}
+	// Specific (per-host) selectors.
+	for suffix, set := range e.specificRules {
+		if hostMatchesSuffix(host, suffix) {
+			for sel := range set {
+				addSel(sel)
 			}
 		}
 	}
 
-	if len(css) == 0 {
+	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(css, "\n")
+	return strings.Join(parts, ", ") + " { display: none !important; }"
 }
 
-// GenerateProceduralJS generates JS for procedural cosmetic filters.
-// These require JavaScript because CSS alone can't do :has-text, :xpath, etc.
-func (e *Engine) GenerateProceduralJS(hostname string) string {
+// GenerateProceduralJS returns the JS body (without <script> wrapper) for
+// the given host, applying every procedural filter whose host suffix
+// matches.
+func (e *Engine) GenerateProceduralJS(host string) string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
-	host := strings.ToLower(strings.TrimSpace(hostname))
-	var filters []ProceduralFilter
-	labels := strings.Split(host, ".")
-	for i := 0; i < len(labels)-1; i++ {
-		suffix := strings.Join(labels[i:], ".")
-		if fs, ok := e.proceduralRules[suffix]; ok {
-			filters = append(filters, fs...)
+	var bodies []string
+	for suffix, set := range e.proceduralRules {
+		if hostMatchesSuffix(host, suffix) {
+			for _, js := range set {
+				bodies = append(bodies, js)
+			}
 		}
 	}
+	if len(bodies) == 0 {
+		return ""
+	}
+	return "(function(){\n" + strings.Join(bodies, "\n") + "\n})();"
+}
 
-	if len(filters) == 0 {
+// GenerateInjectionHTML returns the combined `<style>` and `<script>` block
+// suitable for direct insertion into the HTML <head>. Empty blocks are
+// omitted.
+func (e *Engine) GenerateInjectionHTML(host string) string {
+	var b strings.Builder
+	if css := e.GenerateCSS(host); css != "" {
+		b.WriteString("<style>")
+		b.WriteString(css)
+		b.WriteString("</style>")
+	}
+	if js := e.GenerateProceduralJS(host); js != "" {
+		b.WriteString("<script>")
+		b.WriteString(js)
+		b.WriteString("</script>")
+	}
+	return b.String()
+}
+
+// CompileProcedural translates a uBlock procedural filter expression like
+// "div.foo:has-text(/Sponsored/)" into a self-contained JS snippet that
+// runs inside the page context. Supported operators:
+//
+//   - :has-text(/regex/)     — hide element if its text matches the regex
+//   - :has-text("string")    — hide element if its text contains string
+//   - :has(div.bar)           — hide element if it contains a descendant
+//     matching the inner selector
+//   - :matches-css(selector)  — hide element if it matches the given CSS
+//   - :remove                 — remove the element entirely (not just hide)
+//
+// The returned JS runs in an IIFE and is safe to inject verbatim.
+func CompileProcedural(filter string) string {
+	filter = strings.TrimSpace(filter)
+	if filter == "" {
 		return ""
 	}
 
-	var sb strings.Builder
-	sb.WriteString("(function(){\n")
-	for _, f := range filters {
-		switch f.Type {
-		case "has-text":
-			sb.WriteString("document.querySelectorAll('" + f.Selector + "').forEach(function(el){")
-			sb.WriteString("if(el.textContent.includes('" + f.Arg + "')){")
-			if f.Action == "remove" {
-				sb.WriteString("el.remove();")
-			} else {
-				sb.WriteString("el.style.display='none';")
-			}
-			sb.WriteString("}});\n")
-		case "has":
-			sb.WriteString("document.querySelectorAll('" + f.Selector + ":has(" + f.Arg + ")').forEach(function(el){")
-			if f.Action == "remove" {
-				sb.WriteString("el.remove();")
-			} else {
-				sb.WriteString("el.style.display='none';")
-			}
-			sb.WriteString("});\n")
-		case "remove":
-			sb.WriteString("document.querySelectorAll('" + f.Selector + "').forEach(function(el){el.remove();});\n")
-		case "matches-css":
-			sb.WriteString("document.querySelectorAll('" + f.Selector + "').forEach(function(el){")
-			sb.WriteString("var s=getComputedStyle(el);")
-			sb.WriteString("if(s.getPropertyValue('" + strings.SplitN(f.Arg, ":", 2)[0] + "')")
-			sb.WriteString("==='" + strings.SplitN(f.Arg, ":", 2)[1] + "'){el.style.display='none';}")
-			sb.WriteString("});\n")
+	// Split selector / operator.
+	colon := strings.Index(filter, ":")
+	if colon < 0 {
+		return ""
+	}
+	cssSelector := filter[:colon]
+	rest := filter[colon+1:]
+
+	switch {
+	case strings.HasPrefix(rest, "has-text(") && strings.HasSuffix(rest, ")"):
+		arg := rest[len("has-text(") : len(rest)-1]
+		return compileHasText(cssSelector, arg)
+	case strings.HasPrefix(rest, "has(") && strings.HasSuffix(rest, ")"):
+		arg := rest[len("has(") : len(rest)-1]
+		return fmt.Sprintf(`(function(){
+  document.querySelectorAll(%q).forEach(function(el){
+    if (el.querySelector(%q)) el.style.display='none';
+  });
+})();`, cssSelector, arg)
+	case strings.HasPrefix(rest, "matches-css(") && strings.HasSuffix(rest, ")"):
+		arg := rest[len("matches-css(") : len(rest)-1]
+		return fmt.Sprintf(`(function(){
+  document.querySelectorAll(%q).forEach(function(el){
+    try { if (el.matches(%q)) el.style.display='none'; } catch(e) {}
+  });
+})();`, cssSelector, arg)
+	case rest == "remove":
+		return fmt.Sprintf(`(function(){
+  document.querySelectorAll(%q).forEach(function(el){ el.remove(); });
+})();`, cssSelector)
+	}
+	return ""
+}
+
+// compileHasText produces JS for :has-text(/regex/) or :has-text("string").
+func compileHasText(cssSelector, arg string) string {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return ""
+	}
+	// Regex form: /pattern/ or /pattern/flags
+	if len(arg) >= 2 && arg[0] == '/' {
+		end := strings.LastIndex(arg, "/")
+		if end > 0 {
+			pattern := arg[1:end]
+			flags := arg[end+1:]
+			return fmt.Sprintf(`(function(){
+  var re = new RegExp(%s, %q);
+  document.querySelectorAll(%q).forEach(function(el){
+    if (re.test(el.textContent || "")) el.style.display='none';
+  });
+})();`, jsString(pattern), flags, cssSelector)
 		}
 	}
-	sb.WriteString("})();\n")
-	return sb.String()
+	// Plain string form (strip surrounding quotes if present).
+	s := strings.Trim(arg, "\"'")
+	return fmt.Sprintf(`(function(){
+  document.querySelectorAll(%q).forEach(function(el){
+    if ((el.textContent || "").indexOf(%s) !== -1) el.style.display='none';
+  });
+})();`, cssSelector, jsString(s))
 }
 
-// GenerateInjectionHTML generates a complete <style> + <script> block for injection.
-func (e *Engine) GenerateInjectionHTML(hostname string) string {
-	css := e.GenerateCSS(hostname)
-	js := e.GenerateProceduralJS(hostname)
-	var sb strings.Builder
-	if css != "" {
-		sb.WriteString("<style>\n" + css + "\n</style>\n")
+// jsString returns a JS string literal for the given Go string (single-line,
+// safe enough for our purposes).
+func jsString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				b.WriteString(fmt.Sprintf(`\u%04x`, r))
+			} else {
+				b.WriteRune(r)
+			}
+		}
 	}
-	if js != "" {
-		sb.WriteString("<script>\n" + js + "\n</script>\n")
-	}
-	return sb.String()
+	b.WriteByte('"')
+	return b.String()
 }
 
-// LoadDefaults loads common cosmetic selectors for major ad networks.
+// LoadDefaults populates the engine with the WLT default selector set:
+//   - 22 generic ad-related selectors
+//   - 13 YouTube-specific selectors
+//   - 6 Spotify-specific selectors
 func (e *Engine) LoadDefaults() {
-	// Generic ad selectors (from EasyList + uBlock filters)
-	generics := []string{
-		".ad", ".ads", ".advert", ".advertisement", ".ad-banner", ".ad-container",
-		".ad-wrapper", ".ad-slot", ".ad-zone", ".ad-unit", ".ad-card",
-		"#ad", "#ads", "#advert", "#advertisement", "#banner-ad", "#google-ad",
-		"div[class*='advert']", "div[class*='ad-']", "div[id*='ad-']",
-		"div[class*='sponsor']", "div[class*='promo']",
-		"iframe[src*='doubleclick']", "iframe[src*='googlesyndication']",
-		"ins.adsbygoogle", "div[data-ad]", "div[data-ad-slot]",
-		"amp-ad", "ad-block", "ad-banner",
+	generic := []string{
+		".ad", ".ads", "#ad", "#ads", ".advert", ".banner-ad",
+		`[class*="advert"]`, `[id*="advert"]`, ".ad-container",
+		".ad-wrapper", ".ad-slot", ".ad-banner", ".ad-leaderboard",
+		".ad-rectangle", ".ad-skyscraper", ".promo", ".sponsor",
+		".sponsored", "[data-ad]", "[data-ads]",
+		`iframe[src*="doubleclick"]`,
+		`iframe[src*="googlesyndication"]`,
 	}
-	for _, sel := range generics {
-		e.AddGenericSelector(sel)
+	for _, s := range generic {
+		e.AddGenericSelector(s)
 	}
 
-	// YouTube-specific
-	ytSelectors := []string{
-		"ytd-ad-slot-renderer", "ytd-promoted-video-renderer",
-		"ytd-display-ad-renderer", "ytd-in-feed-ad-layout-renderer",
-		".ytp-ad-player-overlay", ".ytp-ad-survey",
-		"ytd-banner-promo-renderer", "ytd-statement-banner-renderer",
-		"tp-yt-paper-dialog.ytd-display-ad-renderer",
+	youtube := []string{
+		"ytd-ad-slot-renderer",
+		"ytd-promoted-video-renderer",
+		".ytd-display-ad-renderer",
+		"ytd-action-companion-ad-renderer",
+		".video-ads",
+		".ytp-ad-module",
+		".ytp-ad-progress",
+		".ytp-ad-overlay-container",
+		`[class*="ytd-ad"]`,
+		"ytd-search-pyv-renderer",
+		".ytd-banner-promo-renderer",
+		"ytd-banner-promo-renderer",
+		".ytd-mealbar-promo-renderer",
 	}
-	for _, sel := range ytSelectors {
-		e.AddSpecificSelector("youtube.com", sel)
+	for _, s := range youtube {
+		e.AddSpecificSelector("youtube.com", s)
+	}
+	// Also cover youtu.be short-link domain.
+	for _, s := range youtube {
+		e.AddSpecificSelector("youtu.be", s)
 	}
 
-	// Spotify-specific
-	spSelectors := []string{
-		".ad-leaderboard-container", ".ad-slot-container",
-		"[data-testid='ad-slot']", "[data-testid='ad-banner']",
-		".ad-banner-container", ".ad-area",
+	spotify := []string{
+		".ad-leaderboard-container",
+		".ad-slot",
+		`[data-testid="ad-slot"]`,
+		".banner-bar",
+		".leaderboard",
+		".ad-container",
+		`[class*="advert"]`,
 	}
-	for _, sel := range spSelectors {
-		e.AddSpecificSelector("spotify.com", sel)
+	for _, s := range spotify {
+		e.AddSpecificSelector("spotify.com", s)
+		e.AddSpecificSelector("scdn.co", s)
 	}
-}
-
-// SelectorCount returns total number of loaded selectors.
-func (e *Engine) SelectorCount() int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	count := len(e.lowGeneric) + len(e.highGenericSimple) + len(e.highGenericComplex)
-	for _, sels := range e.specificRules {
-		count += len(sels)
-	}
-	return count
 }

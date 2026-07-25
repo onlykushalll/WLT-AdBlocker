@@ -2,149 +2,164 @@ package com.wlt.adblocker.filter
 
 import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Owns blocklist sources and the shared DomainTrie.
+ * Manages the in-memory blocklist trie, with cache-first loading and
+ * atomic swap semantics so a background blocklist refresh can never
+ * leave the trie half-built while a DNS query is being answered.
  *
- * Design (ported from Claude's BlocklistManager):
- *  - Trie rebuilt from scratch on any change, swapped atomically
- *  - Cache-first: rebuildFromCache() never touches network
- *  - refreshFromNetwork() downloads and rebuilds
- *  - Lookups never block on rebuilds
+ * Loading order on startup:
+ *  1. Cached compiled list in `filesDir/blocklists/compiled.bin` (if fresh)
+ *  2. Fresh download from sources (handled by [BlocklistUpdateWorker])
+ *  3. Bundled assets (`blocklists/wlt-*.txt`) — always present, never absent
+ *
+ * The atomic reference holds a single [LoadedTrie] which combines the
+ * block trie, the allow trie, and a count for diagnostics. Reads (from
+ * the VPN query loop) just dereference the AtomicReference — lock-free.
+ * Writes build a new trie fully, then swap.
  */
-data class BlocklistSource(
-    val id: String, val name: String, val url: String,
-    val isBuiltIn: Boolean = false, var enabled: Boolean = true,
-    var ruleCount: Int = 0, var lastUpdatedEpochMs: Long = 0L, var lastError: String? = null,
-)
-
-data class RefreshResult(val succeeded: Int, val failed: Int)
-
 class BlocklistManager(private val context: Context) {
 
-    private val trieRef = AtomicReference(DomainTrie())
-    val trie: DomainTrie get() = trieRef.get()
-
-    private val cacheDir: File get() = File(context.filesDir, "blocklist_cache").apply { mkdirs() }
-    private val sourcesFile: File get() = File(context.filesDir, "blocklist_sources.json")
-    private var sources: MutableList<BlocklistSource> = mutableListOf()
-
-    companion object {
-        private const val TAG = "BlocklistManager"
-        const val WLT_STARTER_ID = "wlt-starter"
-        const val STEVENBLACK_ID = "stevenblack-hosts"
-        const val OISD_BIG_ID = "oisd-big"
-
-        fun defaultSources(): List<BlocklistSource> = listOf(
-            BlocklistSource(WLT_STARTER_ID, "WLT starter (curated ad/game SDK domains)",
-                "asset://starter_blocklist.txt", isBuiltIn = true, enabled = true),
-            BlocklistSource(STEVENBLACK_ID, "StevenBlack hosts (unified)",
-                "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", enabled = true),
-            BlocklistSource(OISD_BIG_ID, "oisd big",
-                "https://big.oisd.nl", enabled = false),
-        )
+    private companion object {
+        const val TAG = "BlocklistManager"
+        const val CACHE_DIR = "blocklists"
+        const val CACHE_FILE = "compiled.bin"
     }
 
-    @Synchronized
-    fun loadSources(): List<BlocklistSource> {
-        if (sources.isNotEmpty()) return sources
-        sources = if (sourcesFile.exists()) {
-            try { readSourcesFile() } catch (e: Exception) { defaultSources().toMutableList() }
-        } else { defaultSources().toMutableList() }
-        return sources
-    }
+    /** Snapshot of the currently-loaded blocklist state. */
+    data class LoadedTrie(
+        val block: DomainTrie,
+        val allow: DomainTrie,
+        val blockCount: Int,
+        val allowCount: Int,
+        val source: String, // "assets" | "cache" | "network"
+        val loadedAt: Long,
+    )
 
-    private fun readSourcesFile(): MutableList<BlocklistSource> {
-        val json = JSONArray(sourcesFile.readText())
-        val list = mutableListOf<BlocklistSource>()
-        for (i in 0 until json.length()) {
-            val o = json.getJSONObject(i)
-            list.add(BlocklistSource(
-                id = o.getString("id"), name = o.getString("name"), url = o.getString("url"),
-                isBuiltIn = o.optBoolean("isBuiltIn", false), enabled = o.optBoolean("enabled", true),
-                ruleCount = o.optInt("ruleCount", 0), lastUpdatedEpochMs = o.optLong("lastUpdatedEpochMs", 0L),
-                lastError = o.optString("lastError", "").takeIf { it.isNotBlank() },
-            ))
+    private val current = AtomicReference<LoadedTrie>(
+        LoadedTrie(DomainTrie(), DomainTrie(), 0, 0, "unloaded", 0L)
+    )
+
+    /** Returns the current loaded trie snapshot. Always non-null. */
+    fun current(): LoadedTrie = current.get()
+
+    /** Convenience for callers that only care about the block trie. */
+    fun blockTrie(): DomainTrie = current.get().block
+
+    /** Convenience for callers that only care about the allow trie. */
+    fun allowTrie(): DomainTrie = current.get().allow
+
+    /** Loads all bundled blocklist assets from `assets/blocklists/`. Safe to
+     *  call on a background thread at startup. Returns the count of rules
+     *  loaded. Idempotent — re-running replaces the trie. */
+    fun loadBundledAssets(): Int {
+        val block = DomainTrie()
+        val allow = DomainTrie()
+        var blockCount = 0
+        var allowCount = 0
+        val assetFiles = try {
+            context.assets.list("blocklists") ?: emptyArray()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to list blocklists assets directory", e)
+            emptyArray()
         }
-        return list
-    }
-
-    @Synchronized
-    private fun persistSources() {
-        val arr = JSONArray()
-        for (s in sources) {
-            val o = JSONObject()
-            o.put("id", s.id); o.put("name", s.name); o.put("url", s.url)
-            o.put("isBuiltIn", s.isBuiltIn); o.put("enabled", s.enabled)
-            o.put("ruleCount", s.ruleCount); o.put("lastUpdatedEpochMs", s.lastUpdatedEpochMs)
-            o.put("lastError", s.lastError ?: "")
-            arr.put(o)
-        }
-        sourcesFile.writeText(arr.toString())
-    }
-
-    suspend fun rebuildFromCache() = withContext(Dispatchers.Default) {
-        loadSources()
-        val newTrie = DomainTrie()
-        for (source in sources) {
-            if (!source.enabled) continue
-            val text = readCachedOrBundledText(source) ?: continue
-            source.ruleCount = BlocklistParser.parseInto(text, newTrie)
-        }
-        trieRef.set(newTrie)
-        persistSources()
-        Log.i(TAG, "Rebuilt trie: ${newTrie.totalRuleCount} rules (${newTrie.blockRuleCount} block / ${newTrie.allowRuleCount} allow)")
-    }
-
-    private fun readCachedOrBundledText(source: BlocklistSource): String? {
-        if (source.url.startsWith("asset://")) {
-            val assetName = source.url.removePrefix("asset://")
-            return try { context.assets.open(assetName).bufferedReader().use { it.readText() } }
-            catch (e: Exception) { null }
-        }
-        val cacheFile = File(cacheDir, "${source.id}.txt")
-        if (!cacheFile.exists()) return null
-        return try { cacheFile.readText() } catch (e: Exception) { null }
-    }
-
-    suspend fun refreshFromNetwork(): RefreshResult = withContext(Dispatchers.IO) {
-        loadSources()
-        var succeeded = 0; var failed = 0
-        for (source in sources) {
-            if (!source.enabled || source.isBuiltIn) continue
+        for (filename in assetFiles.sorted()) {
+            if (!filename.endsWith(".txt")) continue
             try {
-                val downloaded = downloadText(source.url)
-                File(cacheDir, "${source.id}.txt").writeText(downloaded)
-                source.lastUpdatedEpochMs = System.currentTimeMillis()
-                source.lastError = null
-                succeeded++
+                context.assets.open("blocklists/$filename").use { input ->
+                    val text = input.bufferedReader(Charsets.UTF_8).readText()
+                    val (blockDomains, allowDomains) = BlocklistParser.parse(text)
+                    for (d in blockDomains) {
+                        block.insert(d, Verdict.BLOCK)
+                        blockCount++
+                    }
+                    for (d in allowDomains) {
+                        allow.insert(d, Verdict.ALLOW)
+                        allowCount++
+                    }
+                }
+                Log.i(TAG, "Loaded $filename: $blockCount block, $allowCount allow rules so far")
             } catch (e: Exception) {
-                source.lastError = e.message ?: e.javaClass.simpleName
-                failed++
+                Log.w(TAG, "Failed to load blocklist $filename", e)
             }
         }
-        persistSources()
-        rebuildFromCache()
-        RefreshResult(succeeded, failed)
+        current.set(
+            LoadedTrie(
+                block = block,
+                allow = allow,
+                blockCount = blockCount,
+                allowCount = allowCount,
+                source = "assets",
+                loadedAt = System.currentTimeMillis(),
+            )
+        )
+        Log.i(TAG, "Bundled assets loaded: $blockCount block, $allowCount allow rules from ${assetFiles.size} files")
+        return blockCount + allowCount
     }
 
-    private fun downloadText(urlStr: String): String {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15_000; conn.readTimeout = 30_000
-        conn.instanceFollowRedirects = true
-        conn.setRequestProperty("User-Agent", "WLT-Adblocker/0.1 (Android)")
-        return try {
-            conn.connect()
-            if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } finally { conn.disconnect() }
+    /** Replaces the in-memory trie with one loaded from [file]. The file is
+     *  expected to be a plain-text blocklist in any format [BlocklistParser]
+     *  understands. Called by [BlocklistUpdateWorker] after a fresh download. */
+    fun loadFromFile(file: File, source: String = "network"): Int {
+        if (!file.exists() || !file.canRead()) {
+            Log.w(TAG, "Blocklist file missing or unreadable: ${file.absolutePath}")
+            return 0
+        }
+        val text = runCatching { file.readText(Charsets.UTF_8) }.getOrElse {
+            Log.e(TAG, "Failed to read blocklist file ${file.name}", it)
+            return 0
+        }
+        val (blockDomains, allowDomains) = BlocklistParser.parse(text)
+        val block = DomainTrie()
+        val allow = DomainTrie()
+        for (d in blockDomains) block.insert(d, Verdict.BLOCK)
+        for (d in allowDomains) allow.insert(d, Verdict.ALLOW)
+        current.set(
+            LoadedTrie(
+                block = block,
+                allow = allow,
+                blockCount = blockDomains.size,
+                allowCount = allowDomains.size,
+                source = source,
+                loadedAt = System.currentTimeMillis(),
+            )
+        )
+        Log.i(TAG, "Loaded ${file.name}: ${blockDomains.size} block, ${allowDomains.size} allow rules")
+        return blockDomains.size + allowDomains.size
+    }
+
+    /** Adds a single user rule to BOTH the current trie (so it takes effect
+     *  immediately) and any future reloads (via RuleStore, not handled here).
+     *  Used by [com.wlt.adblocker.data.RuleStore] when a custom rule is added.
+     *
+     *  Safe under concurrency: [DomainTrie] is internally thread-safe for
+     *  inserts (uses ConcurrentHashMap internally), so we don't need to swap
+     *  the AtomicReference — we mutate the existing trie in place. */
+    fun addUserRule(domain: String, verdict: Verdict) {
+        val snap = current.get()
+        when (verdict) {
+            Verdict.BLOCK -> snap.block.insert(domain, Verdict.BLOCK)
+            Verdict.ALLOW -> snap.allow.insert(domain, Verdict.ALLOW)
+            Verdict.NONE -> { /* no-op */ }
+        }
+    }
+
+    /** Removes a single user rule from the current trie. */
+    fun removeUserRule(domain: String, verdict: Verdict) {
+        val snap = current.get()
+        when (verdict) {
+            Verdict.BLOCK -> snap.block.remove(domain)
+            Verdict.ALLOW -> snap.allow.remove(domain)
+            Verdict.NONE -> { /* no-op */ }
+        }
+    }
+
+    /** For diagnostics / settings screen display. */
+    fun stats(): String {
+        val snap = current.get()
+        return "block=${snap.blockCount}, allow=${snap.allowCount}, source=${snap.source}, " +
+            "loadedAt=${snap.loadedAt} (${(System.currentTimeMillis() - snap.loadedAt) / 1000}s ago)"
     }
 }

@@ -1,202 +1,279 @@
-// Package ruleparser implements an ABP/uBlock-compatible network rule parser.
+// Package ruleparser implements a parser for the ABP / uBlock Origin
+// filter-rule syntax used by WLT blocklists.
 //
-// This lets users paste rules from uBlock Origin/AdBlock Plus forums directly
-// into WLT's "My Filters" screen. Supported syntax:
+// Supported rule forms:
 //
-//   ||example.com^              — block domain
-//   @@||example.com^            — allow domain (exception)
-//   ||example.com^$important    — override allowlists
-//   ||example.com^$badfilter    — disable another matching rule
-//   ||example.com^$domain=x.com — only block when source domain is x.com
-//   ||example.com^$third-party  — only block third-party requests
-//   0.0.0.0 example.com         — hosts file format
-//   127.0.0.1 example.com       — hosts file format
-//   example.com                 — bare domain
-//   ! comment                    — comment
-//   # comment                    — comment
+//   - `||example.com^`                       → block (network filter)
+//   - `@@||example.com^`                     → allow exception
+//   - `||example.com^$important`             → block, marked important
+//   - `||example.com^$badfilter`             → disable matching block rule
+//   - `||example.com^$domain=a.com,b.com`    → block, only on listed domains
+//   - `||example.com^$third-party`           → block, only third-party requests
+//   - `0.0.0.0 example.com`                  → hosts file (block)
+//   - `example.com`                          → bare domain (block)
+//   - `! comment` / `# comment`              → nil (skip)
+//   - `example.com##.selector`               → cosmetic (REJECT — not
+//     applicable at the VPN layer; the caller can collect these for the
+//     HTTPS proxy cosmetic engine instead).
+//   - `example.com##+js(scriptlet, args)`    → scriptlet (REJECT for VPN;
+//     pass to HTTPS proxy scriptlet engine).
 //
-// Not supported (requires browser DOM/JS — not applicable to VPN):
-//   ##selector                  — cosmetic filtering
-//   ##+js(name, args)           — scriptlet injection
-//   $csp, $replace, $redirect   — response modification
+// "REJECT" means Parse returns a Rule with Type == TypeReject so the caller
+// knows the rule was understood but is not applicable to the current layer.
 package ruleparser
 
 import (
+	"errors"
 	"strings"
 )
 
-// RuleType defines what kind of rule this is.
+// RuleType is the kind of rule produced by Parse.
 type RuleType int
 
 const (
-	RuleBlock     RuleType = iota // block the domain
-	RuleAllow                     // allow (exception — overrides blocks)
-	RuleBadFilter                 // disable another matching rule
+	TypeUnknown RuleType = iota
+	// TypeBlock is a network-blocking rule (deny the request).
+	TypeBlock
+	// TypeAllow is an exception rule (@@ prefix) — allow the request.
+	TypeAllow
+	// TypeHosts is a hosts-file block rule ("0.0.0.0 domain").
+	TypeHosts
+	// TypeBare is a bare-domain block rule (no ABP decorators).
+	TypeBare
+	// TypeCosmetic is a CSS cosmetic rule ("##.selector"). Not applicable
+	// at the VPN layer.
+	TypeCosmetic
+	// TypeScriptlet is a uBlock scriptlet rule ("##+js(...)"). Not
+	// applicable at the VPN layer.
+	TypeScriptlet
+	// TypeReject means the rule was understood but is rejected (e.g. cosmetic
+	// at the VPN layer, or a comment).
+	TypeReject
 )
 
-// ParsedRule represents a parsed network filter rule.
-type ParsedRule struct {
-	Raw       string   // original rule text
-	Domain    string   // domain to block/allow (normalized)
-	Type      RuleType // block, allow, or badfilter
-	Important bool     // $important modifier
-	ThirdParty bool    // $third-party modifier (ignored at VPN layer but parsed)
-	Domains   []string // $domain= modifier (source domains — stored but not enforced at DNS layer)
-	Valid     bool     // whether this rule was successfully parsed
-	Reason    string   // why it was rejected if !Valid
+// Rule is a parsed filter rule.
+type Rule struct {
+	// Raw is the original input line (trimmed).
+	Raw string
+
+	// Type is the rule type.
+	Type RuleType
+
+	// Domain is the primary domain targeted by the rule (without any ABP
+	// decorators). For cosmetic/scriptlet rules this is the host that
+	// scopes the rule ("" if no host).
+	Domain string
+
+	// IsAllow is true for @@ exception rules.
+	IsAllow bool
+	// IsImportant is true for $important modifier.
+	IsImportant bool
+	// IsBadfilter is true for $badfilter modifier.
+	IsBadfilter bool
+
+	// SourceDomains is the list of domains from $domain=... (empty if
+	// absent). Domains prefixed with "~" are exclusions.
+	SourceDomains []string
+
+	// ThirdParty is true if $third-party modifier is present.
+	ThirdParty bool
+
+	// CosmeticSelector is the CSS selector for cosmetic rules.
+	CosmeticSelector string
+	// ScriptletName is the scriptlet name (without args) for scriptlet rules.
+	ScriptletName string
+	// ScriptletArgs is the raw args string (between the parens) for scriptlet rules.
+	ScriptletArgs string
+
+	// HostsIP is the IP address from a hosts-file rule (e.g. "0.0.0.0").
+	HostsIP string
 }
 
-// Parse parses a single line of filter text into a ParsedRule.
-// Returns a ParsedRule with Valid=false for comments/empty/cosmetic rules.
-func Parse(line string) ParsedRule {
-	raw := line
+// Parse parses one filter-list line into a Rule. Returns nil (with nil
+// error) for comments and blank lines. Returns an error only for malformed
+// rules that we cannot interpret.
+func Parse(line string) (*Rule, error) {
 	line = strings.TrimSpace(line)
-
-	// Empty
 	if line == "" {
-		return ParsedRule{Raw: raw, Valid: false, Reason: "empty"}
+		return nil, nil
 	}
 
-	// Comments
-	if strings.HasPrefix(line, "!") || strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "##") {
-		return ParsedRule{Raw: raw, Valid: false, Reason: "comment"}
+	// Comments: lines starting with ! or [ (ABP header) or # but NOT
+	// followed by # (## = cosmetic). The preprocessor !#if directives are
+	// handled by the preparser package; here we just treat them as
+	// comments.
+	if strings.HasPrefix(line, "!") {
+		return nil, nil
+	}
+	if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+		return nil, nil
+	}
+	// Plain "# comment" (one # at the start, NOT ##).
+	if strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "##") && !strings.HasPrefix(line, "#@#") {
+		// Could still be a hosts-file comment with a leading "#" but
+		// ABP uses "!" so this is fine.
+		return nil, nil
 	}
 
-	// Cosmetic rules (##) — not supported at VPN layer
-	if strings.Contains(line, "##") || strings.Contains(line, "#@#") {
-		return ParsedRule{Raw: raw, Valid: false, Reason: "cosmetic rule (not supported at VPN layer)"}
+	// Cosmetic rules: host##selector or host#@#selector (the latter is a
+	// cosmetic exception). The separator "##" or "#@#" may appear without
+	// a host prefix (just "##.selector" for a global cosmetic).
+	if idx := strings.Index(line, "##"); idx >= 0 {
+		host := ""
+		if idx > 0 {
+			host = line[:idx]
+		}
+		rest := line[idx+2:]
+		if strings.HasPrefix(rest, "+js(") && strings.HasSuffix(rest, ")") {
+			args := rest[len("+js(") : len(rest)-1]
+			name := args
+			if comma := strings.Index(args, ","); comma >= 0 {
+				name = args[:comma]
+			}
+			return &Rule{
+				Raw:           line,
+				Type:          TypeScriptlet,
+				Domain:        host,
+				ScriptletName: strings.TrimSpace(name),
+				ScriptletArgs: args,
+			}, nil
+		}
+		return &Rule{
+			Raw:              line,
+			Type:             TypeCosmetic,
+			Domain:           host,
+			CosmeticSelector: rest,
+		}, nil
+	}
+	// Cosmetic exception: host#@#selector.
+	if idx := strings.Index(line, "#@#"); idx >= 0 {
+		host := ""
+		if idx > 0 {
+			host = line[:idx]
+		}
+		return &Rule{
+			Raw:              line,
+			Type:             TypeCosmetic,
+			Domain:           host,
+			CosmeticSelector: line[idx+3:],
+			IsAllow:          true,
+		}, nil
 	}
 
-	// Scriptlet injection (##+js) — not supported
-	if strings.Contains(line, "##+js(") {
-		return ParsedRule{Raw: raw, Valid: false, Reason: "scriptlet injection (not supported at VPN layer)"}
+	// Network rules: maybe @@ prefix, maybe || prefix.
+	r := &Rule{Raw: line, Type: TypeBlock}
+	body := line
+	if strings.HasPrefix(body, "@@") {
+		r.IsAllow = true
+		r.Type = TypeAllow
+		body = body[2:]
 	}
 
-	rule := ParsedRule{Raw: raw, Valid: true}
-	lineLower := strings.ToLower(line)
-
-	// Check for exception rule (@@)
-	if strings.HasPrefix(lineLower, "@@") {
-		rule.Type = RuleAllow
-		line = line[2:]
-		lineLower = lineLower[2:]
-	} else {
-		rule.Type = RuleBlock
+	// Split body into domain part + $options.
+	var options string
+	if dollar := strings.Index(body, "$"); dollar >= 0 {
+		options = body[dollar+1:]
+		body = body[:dollar]
 	}
 
-	// Check for hosts file format: "0.0.0.0 domain" or "127.0.0.1 domain"
-	if strings.HasPrefix(lineLower, "0.0.0.0 ") || strings.HasPrefix(lineLower, "127.0.0.1 ") {
+	// Strip ABP decorators: leading "||" and trailing "^".
+	body = strings.TrimPrefix(body, "||")
+	body = strings.TrimSuffix(body, "^")
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil, errors.New("ruleparser: empty domain")
+	}
+	r.Domain = body
+
+	// Parse options.
+	if options != "" {
+		if err := parseOptions(r, options); err != nil {
+			return nil, err
+		}
+	}
+
+	// If the rule has no ABP decorators (no "||" prefix, no "$"), treat as
+	// a bare domain or a hosts-file entry.
+	if !strings.HasPrefix(line, "||") && !strings.HasPrefix(line, "@@||") && options == "" {
+		// Check for hosts-file form: "0.0.0.0 domain" or "127.0.0.1 domain".
 		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			rule.Domain = normalize(parts[1])
-			return rule
+		if len(parts) == 2 && isIP(parts[0]) {
+			return &Rule{
+				Raw:     line,
+				Type:    TypeHosts,
+				Domain:  parts[1],
+				HostsIP: parts[0],
+			}, nil
 		}
-		return ParsedRule{Raw: raw, Valid: false, Reason: "invalid hosts format"}
+		// Bare domain (no decorator, no options).
+		r.Type = TypeBare
 	}
 
-	// Check for ABP format: ||domain^
-	if strings.HasPrefix(lineLower, "||") {
-		line = line[2:]
-		lineLower = lineLower[2:]
-
-		// Extract domain (up to ^, /, $, or end)
-		domain := line
-		for i, c := range line {
-			if c == '^' || c == '/' || c == '$' {
-				domain = line[:i]
-				break
-			}
-		}
-		rule.Domain = normalize(domain)
-
-		// Parse modifiers (after $)
-		if idx := strings.Index(line, "$"); idx >= 0 {
-			modifiers := line[idx+1:]
-			parseModifiers(&rule, modifiers)
-		}
-		return rule
-	}
-
-	// Bare domain (no || prefix, no hosts format)
-	// Must look like a domain (contains a dot, no spaces)
-	if strings.Contains(line, ".") && !strings.Contains(line, " ") {
-		// Strip any modifiers
-		if idx := strings.Index(line, "$"); idx >= 0 {
-			rule.Domain = normalize(line[:idx])
-			parseModifiers(&rule, line[idx+1:])
-		} else {
-			rule.Domain = normalize(line)
-		}
-		return rule
-	}
-
-	return ParsedRule{Raw: raw, Valid: false, Reason: "unrecognized format"}
+	return r, nil
 }
 
-// parseModifiers parses ABP modifier string (e.g., "important,domain=example.com,third-party")
-func parseModifiers(rule *ParsedRule, modifiers string) {
-	parts := strings.Split(modifiers, ",")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
+// parseOptions parses the comma-separated $options string and populates the
+// Rule. Returns an error for malformed options.
+func parseOptions(r *Rule, options string) error {
+	for _, opt := range strings.Split(options, ",") {
+		opt = strings.TrimSpace(opt)
 		switch {
-		case part == "important":
-			rule.Important = true
-		case part == "badfilter":
-			rule.Type = RuleBadFilter
-		case part == "third-party" || part == "3p":
-			rule.ThirdParty = true
-		case strings.HasPrefix(part, "domain="):
-			domains := strings.TrimPrefix(part, "domain=")
-			for _, d := range strings.Split(domains, "|") {
-				d = strings.TrimSpace(d)
-				if d != "" {
-					rule.Domains = append(rule.Domains, normalize(d))
-				}
+		case opt == "important":
+			r.IsImportant = true
+		case opt == "badfilter":
+			r.IsBadfilter = true
+		case opt == "third-party" || opt == "3p":
+			r.ThirdParty = true
+		case opt == "~third-party" || opt == "~3p":
+			r.ThirdParty = false
+		case strings.HasPrefix(opt, "domain="):
+			list := opt[len("domain="):]
+			r.SourceDomains = strings.Split(list, "|")
+			for i, d := range r.SourceDomains {
+				r.SourceDomains[i] = strings.TrimSpace(d)
 			}
-		// Modifiers we recognize but can't enforce at DNS layer:
-		case part == "script" || part == "image" || part == "xhr" ||
-			part == "frame" || part == "subdocument" || part == "popup" ||
-			part == "media" || part == "font" || part == "stylesheet" ||
-			part == "websocket" || part == "ping" || part == "webrtc":
-			// Request type — stored but not enforced (VPN can't see request type)
-		case strings.HasPrefix(part, "removeparam="):
-			// URL parameter stripping — not supported at DNS layer
-		case strings.HasPrefix(part, "redirect="):
-			// Resource redirect — not supported at DNS layer
-		case strings.HasPrefix(part, "csp="):
-			// CSP modification — not supported at DNS layer
+		case strings.HasPrefix(opt, "scriptlet=") || strings.HasPrefix(opt, "redirect-rule=") ||
+			strings.HasPrefix(opt, "rewrite=") || strings.HasPrefix(opt, "replace=") ||
+			strings.HasPrefix(opt, "removeparam=") || strings.HasPrefix(opt, "header=") ||
+			strings.HasPrefix(opt, "method=") || strings.HasPrefix(opt, "ctype=") ||
+			strings.HasPrefix(opt, "permissions=") || strings.HasPrefix(opt, "popup"):
+			// Acknowledged but otherwise ignored — these options don't
+			// affect the basic block/allow decision at the VPN layer.
+		case opt == "document" || opt == "image" || opt == "stylesheet" ||
+			opt == "script" || opt == "xhr" || opt == "frame" || opt == "subdocument" ||
+			opt == "object" || opt == "media" || opt == "other" || opt == "font" ||
+			opt == "websocket" || opt == "ping" || opt == "generichide" || opt == "specifichide":
+			// Content-type modifiers — ignored at the VPN layer.
+		case strings.HasPrefix(opt, "~"):
+			// Negated content-type modifier — ignored.
+		default:
+			// Unknown option: ignore silently (we'd rather accept the
+			// rule with a dropped option than reject the whole list).
 		}
 	}
+	return nil
 }
 
-// normalize lowercases and trims the domain.
-func normalize(d string) string {
-	return strings.ToLower(strings.Trim(strings.TrimSpace(d), ".^"))
-}
-
-// ParseMulti parses multiple lines and returns only valid network rules.
-func ParseMulti(text string) []ParsedRule {
-	var rules []ParsedRule
-	for _, line := range strings.Split(text, "\n") {
-		rule := Parse(line)
-		if rule.Valid {
-			rules = append(rules, rule)
+// isIP returns true if s looks like an IPv4 address (used to detect hosts-
+// file rules). We deliberately don't require strict RFC validity — the
+// goal is just to distinguish "0.0.0.0 domain" from "domain".
+func isIP(s string) bool {
+	if s == "" {
+		return false
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" || len(p) > 3 {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
 		}
 	}
-	return rules
-}
-
-// IsBlock returns true if the rule is a block rule.
-func (r ParsedRule) IsBlock() bool {
-	return r.Valid && r.Type == RuleBlock
-}
-
-// IsAllow returns true if the rule is an allow (exception) rule.
-func (r ParsedRule) IsAllow() bool {
-	return r.Valid && r.Type == RuleAllow
-}
-
-// IsBadFilter returns true if the rule disables another matching rule.
-func (r ParsedRule) IsBadFilter() bool {
-	return r.Valid && r.Type == RuleBadFilter
+	return true
 }

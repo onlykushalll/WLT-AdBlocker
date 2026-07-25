@@ -1,9 +1,9 @@
 package com.wlt.adblocker.vpn
-import com.wlt.adblocker.filter.DomainTrie
-import com.wlt.adblocker.filter.Verdict
 
 import android.net.VpnService
 import android.util.Log
+import com.wlt.adblocker.filter.DomainTrie
+import com.wlt.adblocker.filter.Verdict
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress

@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ic_launcher_background: solid brand-color rectangle. Adaptive icons
+     require a separate background drawable; using a solid color keeps the
+     APK small and avoids OEM theme clashes. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#FF0A0F0D"
+        android:fillColor="#FF0F7B6C"
         android:pathData="M0,0 H108 V108 H0 Z" />
 </vector>

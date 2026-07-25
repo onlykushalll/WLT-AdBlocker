@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="wlt_green">#FF00C896</color>
-    <color name="wlt_green_dark">#FF00A87E</color>
-    <color name="wlt_bg_light">#FFF7FAF8</color>
-    <color name="wlt_bg_dark">#FF0A0F0D</color>
+    <!-- WLT brand colors — MUST stay in sync with ui/theme/Color.kt. -->
+    <color name="wlt_primary">#FF0F7B6C</color>
+    <color name="wlt_primary_dark">#FF0A5A4F</color>
+    <color name="wlt_secondary">#FFD97706</color>
+    <color name="wlt_background">#FF0A0F0E</color>
+    <color name="wlt_surface">#FF141A19</color>
+    <color name="wlt_error">#FFDC2626</color>
+
+    <!-- Light theme variants -->
+    <color name="wlt_primary_light">#FF0F7B6C</color>
+    <color name="wlt_background_light">#FFF7FAF9</color>
+    <color name="wlt_surface_light">#FFFFFFFF</color>
+
+    <!-- Launcher icon (vector drawables read these by name). -->
+    <color name="ic_launcher_background">#FF0F7B6C</color>
+    <color name="ic_launcher_foreground">#FFFFFFFF</color>
 </resources>

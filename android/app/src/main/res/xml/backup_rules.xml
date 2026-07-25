@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal full-backup-content rules. WLT is privacy-first: we do NOT
+     back up user settings or rules to Google's cloud backup by default.
+     Only the user-explicitly-exported JSON (via Settings > Export) is
+     the supported backup path. The data_extraction_rules.xml file
+     handles Android 12+ device-to-device transfer. -->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+    <exclude domain="file" />
+</full-backup-content>

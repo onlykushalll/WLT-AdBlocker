@@ -1,91 +1,126 @@
-# WLT YouTube Comprehensive Ad/Tracker Blocklist
-# Blocks ALL YouTube ad-serving, tracking, and telemetry domains.
-# Video CDN (googlevideo.com) is ALLOWED to avoid breaking video playback.
-# Ad segments within the stream are stripped via m3u-prune (Phase 3).
+# ============================================================
+# WLT YouTube Ads Blocklist
+# ------------------------------------------------------------
+# YouTube CSAI ad domains, SSAI segment manifests, tracking,
+# telemetry, mobile endpoints, Shorts/Music/Kids/Embeds, and
+# Doubleclick stream ad domains.
+#
+# NOTE on SSAI (Server-Side Ad Injection):
+#   Ad segments are stitched into the HLS manifest at
+#   r{N}---sn-{X}.googlevideo.com. The engine uses suffix
+#   matching on googlevideo.com to cover all variants, with
+#   m3u-prune (Phase 3 MITM) handling the actual stream
+#   filtering. The bare googlevideo.com base is NOT blocked
+#   because it would break playback; only the ad-related
+#   manifest + segment paths get pruned in the HTTPS layer.
+# ============================================================
 
-# === YouTube Ad Serving (CSAI) ===
-googleads.g.doubleclick.net
-pagead2.googlesyndication.com
-googleads4.g.doubleclick.net
-adclick.g.doubleclick.net
-ad.doubleclick.net
-adservice.google.com
+# === CSAI AD DOMAINS (Client-Side Ad Insertion) ===
 pubads.g.doubleclick.net
-admob.google.com
-ads.google.com
-googlesyndication.com
-googleadservices.com
-googletagservices.com
-doubleclick.net
+pagead2.googlesyndication.com
+googleads.g.doubleclick.net
+adservice.google.com
+adservice.google.com.mm
+adservice.google.com.hk
+adservice.google.co.jp
+adservice.google.co.kr
+adservice.google.com.tw
+adservice.google.com.sg
+adservice.google.com.au
+adservice.google.co.uk
+adservice.google.de
+adservice.google.fr
+adservice.google.ca
+adservice.google.it
+adservice.google.es
+adservice.google.com.br
+adservice.google.com.mx
+adservice.google.com.ar
+ad.doubleclick.net
+adclick.g.doubleclick.net
+googleads4.g.doubleclick.net
+securepubads.g.doubleclick.net
+doubleclick.com
+
+# === SSAI (Server-Side Ad Injection) ===
+# Pattern: r{N}---sn-{X}.googlevideo.com  (e.g. r1---sn-uxax3vh-tab6.googlevideo.com)
+# Engine blocks suffix .googlevideo.com ad paths; bare googlevideo.com NOT blocked
+# because it would break video playback. Phase 3 m3u-prune strips ad segments.
+manifest.googlevideo.com
+ad.googlevideo.com
+ads.googlevideo.com
+video-stats.video.google.com
+
+# === TRACKING ===
+www.google-analytics.com
+ssl.google-analytics.com
+s.youtube.com
+accounts.youtube.com
+wide.youtube.com
+feedback.youtube.com
+play.googleapis.com
+www.googleapis.com
+google-analytics.com
+analytics.google.com
+tags.google.com
+ads.youtube.com
+adsales.youtube.com
+
+# === TELEMETRY ===
+clients4.google.com
+clients3.google.com
+clients2.google.com
+update.googleapis.com
+ssl.gstatic.com
+s2.youtube.com
+i1.ytimg.com
+i2.ytimg.com
+i3.ytimg.com
+i4.ytimg.com
+i9.ytimg.com
+beacons.gcp.gvt2.com
+beacons5.gvt2.com
+beacons3.gvt2.com
+ci3.googleusercontent.com
+sled.fy56v.sle.sh
+gfe-us-west2-aa.googleapis.com
+
+# === MOBILE ===
+# Mobile app ad endpoints (native app still requires ReVanced
+# patching for full ad-free; DNS blocks the tracking surface).
+m.youtube.com
+youtubei.googleapis.com
+android.clients.google.com
+mtalk.google.com
+
+# === SHORTS ===
+shorts.googleapis.com
+shorts.youtube.com
+
+# === MUSIC ===
+music.youtube.com
+musicads.youtube.com
+music-clients.youtube.com
+
+# === KIDS ===
+kids.youtube.com
+kidsads.youtube.com
+
+# === EMBEDS ===
+youtube-nocookie.com
+embedads.youtube.com
+
+# === DOUBLECLICK STREAM ADS ===
+streamads.doubleclick.net
+stats.doubleclick.net
+adx.g.doubleclick.net
 s0.2mdn.net
 s1.2mdn.net
 s2.2mdn.net
-s3.2mdn.net
-2mdn.net
-*.doubleclick.net
-*.googlesyndication.com
-*.googleadservices.com
-*.googletagservices.com
-*.2mdn.net
+adx-svc.demdex.net
 
-# === YouTube Tracking/Telemetry ===
-www.google-analytics.com
-ssl.google-analytics.com
-youtubei.googleapis.com
-youtubei.googleusercontent.com
-s.youtube.com
-video-stats.video.google.com
-stats.g.doubleclick.net
-sandbox.google.com
-client-channel.google.com
-takeout.google.com
-accounts.google.com
-securetoken.googleapis.com
-ogg.google.com
-ai.ytimg.com
-i.ytimg.com
-s.ytimg.com
-yt3.ggpht.com
-
-# === YouTube Ad Creative CDN ===
-googleads.g.doubleclick.net
-video.google.com
-*.video.google.com
-creative.googleads.g.doubleclick.net
-
-# === YouTube Mobile App Ad Domains ===
-ad-m.google.com
-ad.doubleclick.net
-adservice.google.com
-googleads.g.doubleclick.net
-pagead2.googlesyndication.com
-pubads.g.doubleclick.net
-adclick.g.doubleclick.net
-googleads4.g.doubleclick.net
-
-# === YouTube Shorts Ads ===
-shorts.ads.google.com
-shorts.googleads.g.doubleclick.net
-
-# === YouTube Music Ads ===
-music.ads.google.com
-music.googleads.g.doubleclick.net
-music-ad.doubleclick.net
-
-# === YouTube Kids Ads ===
-kids.ads.google.com
-kids.googleads.g.doubleclick.net
-
-# === YouTube Embed Ads ===
-embeds.doubleclick.net
-embedads.google.com
-
-# === Google Publisher Tags (GPT) ===
-securepubads.g.doubleclick.net
-*.securepubads.g.doubleclick.net
-service.google.com
-adservice.google.com
-
-# === YouTube A/B Testing / Experiment Ad Domains ===
-experimentads.google.com
-abtest.googleads.g.doubleclick.net
+# === YOUTUBE AD-SERVING EDGES (NEW) ===
+yt-aboutads.google.com
+adinfo.google.com
+redirector.googlevideo.com
+youtubei.clients.google.com

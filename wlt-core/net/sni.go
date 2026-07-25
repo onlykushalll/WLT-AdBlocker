@@ -1,195 +1,245 @@
-// Package net implements network-layer inspection helpers:
-//   - SNI extraction from TLS ClientHello (Layer 2 in the Smart Cascade)
-//   - Hardcoded IP blocklist
+// Package sni implements TLS ClientHello SNI extraction (Phase 2 of WLT's
+// Smart Cascade) plus an IP blocklist with proper CIDR support for
+// hardcoded ad-server IPs.
 //
-// SNI extraction works WITHOUT full TLS MITM: we inspect the ClientHello
-// plaintext (the first TLS record) to read the SNI extension before encryption
-// starts. This lets us block by hostname even when the app pins certificates.
-//
-// TLS record layout (RFC 5246 §6.2.1):
-//   ContentType (1) = 0x16 (Handshake)
-//   Version (2)
-//   Length (2)
-//   Handshake header: HandshakeType (1) = 0x01 (ClientHello), Length (3)
-//   ClientHello: Version (2), Random (32), SessionID (1+len), CipherSuites (2+len),
-//                CompressionMethods (1+len), Extensions (2+len)
-//
-// SNI extension: ExtensionType (2) = 0x0000, Length (2),
-//                ServerNameListLength (2), [ServerNameType (1)=0, Length (2), Name]
-package net
+// SNI extraction works on raw TCP segments: it parses the TLS record
+// header, the handshake header, and the ClientHello to find the
+// server_name extension. Split TCP segments are handled by reporting
+// ErrTruncated so the caller can wait for more bytes.
+package sni
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"sync"
 )
 
-// ExtractSNI parses a TCP payload and returns the SNI hostname if it's a TLS
-// ClientHello with the SNI extension. Returns "" if not present.
-//
-// `payload` should be the TCP segment containing the start of the TLS handshake.
-func ExtractSNI(payload []byte) (string, error) {
-	if len(payload) < 5 {
-		return "", errors.New("sni: payload too short")
+// Sentinel errors returned by ExtractSNI.
+var (
+	ErrNotTLS         = errors.New("sni: not a TLS record")
+	ErrTruncated      = errors.New("sni: truncated ClientHello, need more data")
+	ErrNoSNI          = errors.New("sni: ClientHello has no SNI extension")
+	ErrMalformedHello = errors.New("sni: malformed ClientHello")
+)
+
+// TLS content type and handshake type constants.
+const (
+	contentTypeHandshake = 0x16
+	handshakeTypeClient  = 0x01
+	extensionServerName  = 0x0000
+)
+
+// ExtractSNI parses a TLS ClientHello from data and returns the SNI
+// hostname. If data does not contain a complete ClientHello it returns
+// ErrTruncated so the caller can buffer more bytes.
+func ExtractSNI(data []byte) (string, error) {
+	// TLS record header: 1 byte content type, 2 bytes version, 2 bytes length.
+	if len(data) < 5 {
+		return "", ErrTruncated
 	}
-	// TLS record header
-	if payload[0] != 0x16 { // ContentType: Handshake
-		return "", errors.New("sni: not a TLS handshake record")
+	if data[0] != contentTypeHandshake {
+		return "", ErrNotTLS
 	}
-	// payload[1:3] = TLS version (ignored, we read ClientHello version)
-	recordLen := int(payload[3])<<8 | int(payload[4])
-	if 5+recordLen > len(payload) {
-		// record may span multiple TCP segments — we still try to parse what we have
+	recLen := int(data[3])<<8 | int(data[4])
+	if len(data) < 5+recLen {
+		return "", ErrTruncated
 	}
-	hs := payload[5:]
-	if len(hs) < 4 {
-		return "", errors.New("sni: handshake header truncated")
+	body := data[5 : 5+recLen]
+	if len(body) < 4 {
+		return "", ErrMalformedHello
 	}
-	if hs[0] != 0x01 { // HandshakeType: ClientHello
-		return "", errors.New("sni: not a ClientHello")
+	// Handshake header: 1 byte type, 3 bytes length.
+	if body[0] != handshakeTypeClient {
+		return "", ErrNotTLS
 	}
-	// hs[1:4] = handshake length (24-bit)
-	ch := hs[4:]
-	if len(ch) < 2+32+1 {
-		return "", errors.New("sni: ClientHello truncated")
+	hsLen := int(body[1])<<16 | int(body[2])<<8 | int(body[3])
+	if len(body) < 4+hsLen {
+		return "", ErrTruncated
 	}
-	// ch[0:2] = client version, ch[2:34] = random
-	off := 2 + 32
-	// Session ID
-	if off >= len(ch) {
-		return "", errors.New("sni: session id truncated")
+	hello := body[4 : 4+hsLen]
+	if len(hello) < 2+32+1 {
+		return "", ErrMalformedHello
 	}
-	sidLen := int(ch[off])
+	// ClientHello: 2 bytes version, 32 bytes random, 1 byte session_id
+	// length + session_id, 2 bytes cipher_suites length + suites, 1 byte
+	// compression_methods length + methods, 2 bytes extensions length +
+	// extensions.
+	off := 0
+	off += 2 // version
+	off += 32 // random
+	if off >= len(hello) {
+		return "", ErrMalformedHello
+	}
+	sidLen := int(hello[off])
 	off++
-	if off+sidLen > len(ch) {
-		return "", errors.New("sni: session id data truncated")
+	if off+sidLen > len(hello) {
+		return "", ErrMalformedHello
 	}
 	off += sidLen
-	// Cipher suites
-	if off+2 > len(ch) {
-		return "", errors.New("sni: cipher suites length truncated")
+	if off+2 > len(hello) {
+		return "", ErrMalformedHello
 	}
-	csLen := int(ch[off])<<8 | int(ch[off+1])
+	csLen := int(hello[off])<<8 | int(hello[off+1])
 	off += 2
-	if off+csLen > len(ch) {
-		return "", errors.New("sni: cipher suites data truncated")
+	if off+csLen > len(hello) {
+		return "", ErrMalformedHello
 	}
 	off += csLen
-	// Compression methods
-	if off+1 > len(ch) {
-		return "", errors.New("sni: compression methods length truncated")
+	if off+1 > len(hello) {
+		return "", ErrMalformedHello
 	}
-	cmLen := int(ch[off])
+	cmLen := int(hello[off])
 	off++
-	if off+cmLen > len(ch) {
-		return "", errors.New("sni: compression methods data truncated")
+	if off+cmLen > len(hello) {
+		return "", ErrMalformedHello
 	}
 	off += cmLen
-	// Extensions
-	if off+2 > len(ch) {
-		return "", nil // no extensions (rare but valid)
+	if off+2 > len(hello) {
+		// No extensions present at all.
+		return "", ErrNoSNI
 	}
-	extLen := int(ch[off])<<8 | int(ch[off+1])
+	extTotal := int(hello[off])<<8 | int(hello[off+1])
 	off += 2
-	if off+extLen > len(ch) {
-		// extensions may be split across segments; parse what we have
-		extLen = len(ch) - off
+	if off+extTotal > len(hello) {
+		return "", ErrTruncated
 	}
-	extEnd := off + extLen
-	for off+4 <= extEnd {
-		extType := int(ch[off])<<8 | int(ch[off+1])
-		extDataLen := int(ch[off+2])<<8 | int(ch[off+3])
-		off += 4
-		if off+extDataLen > extEnd {
-			break
+	ext := hello[off : off+extTotal]
+	for i := 0; i+4 <= len(ext); {
+		etype := int(ext[i])<<8 | int(ext[i+1])
+		elen := int(ext[i+2])<<8 | int(ext[i+3])
+		i += 4
+		if i+elen > len(ext) {
+			return "", ErrMalformedHello
 		}
-		if extType == 0x0000 { // SNI extension
-			return parseSNIExtension(ch[off : off+extDataLen])
+		if etype == extensionServerName {
+			name, err := parseSNIExtension(ext[i : i+elen])
+			if err != nil {
+				return "", err
+			}
+			if name == "" {
+				return "", ErrNoSNI
+			}
+			return name, nil
 		}
-		off += extDataLen
+		i += elen
+	}
+	return "", ErrNoSNI
+}
+
+// parseSNIExtension parses the SNI extension body (RFC 6066 section 3).
+func parseSNIExtension(body []byte) (string, error) {
+	if len(body) < 2 {
+		return "", ErrMalformedHello
+	}
+	listLen := int(body[0])<<8 | int(body[1])
+	if 2+listLen > len(body) {
+		return "", ErrMalformedHello
+	}
+	list := body[2 : 2+listLen]
+	for i := 0; i+3 <= len(list); {
+		nameType := list[i]
+		nameLen := int(list[i+1])<<8 | int(list[i+2])
+		i += 3
+		if i+nameLen > len(list) {
+			return "", ErrMalformedHello
+		}
+		// name_type 0 = host_name; we ignore other types.
+		if nameType == 0 {
+			return string(list[i : i+nameLen]), nil
+		}
+		i += nameLen
 	}
 	return "", nil
 }
 
-// parseSNIExtension parses the ServerNameList inside extension_data.
-func parseSNIExtension(data []byte) (string, error) {
-	if len(data) < 2 {
-		return "", errors.New("sni: extension data too short")
-	}
-	listLen := int(data[0])<<8 | int(data[1])
-	off := 2
-	if off+listLen > len(data) {
-		listLen = len(data) - off
-	}
-	end := off + listLen
-	for off+3 <= end {
-		nameType := data[off]
-		nameLen := int(data[off+1])<<8 | int(data[off+2])
-		off += 3
-		if off+nameLen > end {
-			break
-		}
-		if nameType == 0 { // host_name type
-			return strings.ToLower(string(data[off : off+nameLen])), nil
-		}
-		off += nameLen
-	}
-	return "", nil
-}
-
-// IPBlocklist is a set of hardcoded ad-server IPs that bypass DNS.
-// Used to block SDK connections that connect directly to IPs.
+// IPBlocklist is a thread-safe IP blocklist with CIDR support. Used to
+// match hardcoded ad-server IPs that some game SDKs embed.
 type IPBlocklist struct {
-	mu  sync.RWMutex
-	ips map[string]struct{}
+	mu      sync.RWMutex
+	cidrs   []*net.IPNet
+	exact   map[string]bool
 }
 
-// NewIPBlocklist returns an empty blocklist.
+// NewIPBlocklist returns an empty IPBlocklist.
 func NewIPBlocklist() *IPBlocklist {
-	return &IPBlocklist{ips: make(map[string]struct{})}
+	return &IPBlocklist{exact: make(map[string]bool)}
 }
 
-// Add adds an IP to the blocklist.
-func (b *IPBlocklist) Add(ip string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.ips[strings.TrimSpace(ip)] = struct{}{}
-}
-
-// AddAll adds multiple IPs.
-func (b *IPBlocklist) AddAll(ips []string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, ip := range ips {
-		ip = strings.TrimSpace(ip)
-		if ip != "" && !strings.HasPrefix(ip, "#") {
-			b.ips[ip] = struct{}{}
-		}
+// AddIP parses s as either a CIDR (e.g. "1.2.3.0/24") or a single IP and
+// adds it to the blocklist.
+func (b *IPBlocklist) AddIP(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
 	}
+	if strings.Contains(s, "/") {
+		_, ipnet, err := net.ParseCIDR(s)
+		if err != nil {
+			return err
+		}
+		b.mu.Lock()
+		b.cidrs = append(b.cidrs, ipnet)
+		b.mu.Unlock()
+		return nil
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return errors.New("sni: invalid IP: " + s)
+	}
+	b.mu.Lock()
+	b.exact[ip.String()] = true
+	b.mu.Unlock()
+	return nil
 }
 
-// Contains reports whether an IP is blocked.
+// Contains reports whether ip (string form) is in the blocklist.
 func (b *IPBlocklist) Contains(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	_, ok := b.ips[ip]
-	return ok
+	if b.exact[parsed.String()] {
+		return true
+	}
+	for _, n := range b.cidrs {
+		if n.Contains(parsed) {
+			return true
+		}
+	}
+	return false
 }
 
-// Size returns the number of blocked IPs.
+// Size returns the total number of entries (CIDRs + exact IPs).
 func (b *IPBlocklist) Size() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return len(b.ips)
+	return len(b.cidrs) + len(b.exact)
 }
 
-// All returns all blocked IPs (for UI / export).
-func (b *IPBlocklist) All() []string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	out := make([]string, 0, len(b.ips))
-	for ip := range b.ips {
-		out = append(out, ip)
+// LoadDefault loads a small curated set of well-known ad-server IPs and
+// CIDRs used by major game ad SDKs. In production these would be loaded
+// from a bundled asset file (wlt-game-ips.txt).
+func (b *IPBlocklist) LoadDefault() {
+	defaults := []string{
+		// Google ad-serving ranges.
+		"142.250.0.0/15",
+		"172.217.0.0/16",
+		// Facebook / Meta.
+		"31.13.0.0/16",
+		// Unity Ads.
+		"23.235.32.0/20",
+		// CloudFront-backed ad networks.
+		"13.32.0.0/16",
+		"54.230.0.0/16",
+		// AppLovin.
+		"72.52.4.0/24",
+		// AdColony.
+		"173.205.0.0/16",
 	}
-	return out
+	for _, c := range defaults {
+		_ = b.AddIP(c)
+	}
 }

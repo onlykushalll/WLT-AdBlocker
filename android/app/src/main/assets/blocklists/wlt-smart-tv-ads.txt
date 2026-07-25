@@ -1,83 +1,134 @@
-# WLT Smart TV / Streaming Ad & Tracker Domains
-# Blocks promo/menu/screensaver ads and telemetry on Smart TVs.
-# In-stream video ads share CDN with content — cannot DNS block.
+# ============================================================
+# WLT Smart TV Ads Blocklist
+# ------------------------------------------------------------
+# Smart-TV vendor ad/tracking domains (Samsung, Roku, LG,
+# Vizio) plus streaming-service ad endpoints (Hulu, Peacock,
+# Disney+, Paramount+, Amazon Prime Video, HBO Max, Netflix)
+# and general streaming ad networks. Built in Task 36.
+#
+# HONEST LIMIT: DNS blocking kills promo ads and tracking
+# beacons only; in-stream SSAI ads on these services still
+# require Phase 3 m3u-prune at the MITM layer.
+# ============================================================
 
-# Samsung (Tizen)
+# === SAMSUNG ===
 ad.samsungadhub.com
 ads.samsungads.com
-samsungads.com
-log-ingestion.samsungads.com
-ads.samsung.com
-analytics.samsung.com
-samsungtifa.com
-metricsdata.samsung.com
+smtmobilead.samsungapps.com
+adhub.samsungadhub.com
+sdk.iad.samsungads.com
+smtads.samsungapps.com
+ad.samsungapps.com
+ticker.samsungmobile.com
+ads.samsungmobile.com
+metrics.samsungapps.com
 
-# Roku
+# === ROKU ===
 cooper.logs.roku.com
-track.sr.roku.com
+logs.logp-nomality.com
+adserver.roku.com
+pubads.roku.com
+deep.link.roku.com
 advertising.roku.com
 ads.roku.com
-partnerads.roku.com
-logs.roku.com
-analytics.roku.com
-adserver.roku.com
+partners.roku.com
+metrics.roku.com
+odc-router.roku.com
+imagemetadata.sr.roku.com
 
-# LG (webOS)
-adinfo.lg.com
+# === LG ===
 ad.lgads.com
-lgad.com
-analytics.lg.com
-lgsmartad.com
-smartad.lg.com
-ad.lgsmarttv.com
+lgad.cdn4.lgads.com
+adserver.lgsmartad.com
+ad.lgsmartad.com
+ads.lgsmartad.com
+nmenu.lgsmartad.com
+adinfo.lgsmartad.com
 
-# Vizio
+# === VIZIO ===
 ads.vizio.com
-analytics.vizio.com
-tracking.vizio.com
+insync.ads.vizio.com
+metrics.vizio.com
+smartcast.vizio.com
 
-# Hulu
+# === HULU ===
+ad.hulu.com
 ads.hulu.com
-adserver.hulu.com
-analytics.hulu.com
-imasdk.hulu.com
+t2.hulu.com
+t3.hulu.com
+impressions.hulu.com
+adam.hulu.com
+sos.hulu.com
 
-# Peacock
+# === PEACOCK ===
 ads.peacocktv.com
-adserver.peacocktv.com
-analytics.peacocktv.com
+tracking.peacocktv.com
+metrics.peacocktv.com
+logx.peacocktv.com
 
-# Disney+
+# === DISNEY+ ===
+adtech.disneyplus.com
 ads.disneyplus.com
-adserver.disneyplus.com
-analytics.disneyplus.com
+tracking.disneyplus.com
+metrics.disneyplus.com
+connectid.disneyplus.com
 
-# Paramount+
+# === PARAMOUNT+ ===
 ads.paramountplus.com
-adserver.paramountplus.com
+tracking.paramountplus.com
+metrics.paramountplus.com
 
-# Amazon Prime Video
-ads.primevideo.com
-adserver.primevideo.com
+# === AMAZON PRIME VIDEO ===
 aax.amazon-adsystem.com
+aax-us-east.amazon-adsystem.com
+amzn.to
+fls-na.amazon.com
+fls-eu.amazon.com
+unagi.amazon.com
+unagi-na.amazon.com
+unagi-eu.amazon.com
+ats.amazon.com
 
-# HBO Max / Max
-ads.max.com
-adserver.max.com
+# === HBO MAX ===
 ads.hbomax.com
+tracking.hbomax.com
+metrics.hbomax.com
 
-# General Streaming Ad Networks
-fwmrm.net
-freewheel.tv
-video.fwmrm.net
-adm.fwmrm.net
-smartadserver.com
-rubiconproject.com
-pubmatic.com
-criteo.com
-criteo.net
-adnxs.com
-openx.net
-spotx.tv
-spotxchange.com
-triplelift.com
+# === NETFLIX ===
+# Netflix is mostly ad-free today, but the ad-supported tier
+# is rolling out — these endpoints are preemptively listed.
+adtech.netflix.com
+ads.netflix.com
+
+# === GENERAL STREAMING AD NETWORKS ===
+smartclip.net
+smartclip.com
+subserver.smartclip.net
+tvgids.adscale.com
+adsmart.parafernalia.net
+adserverspring.parsinternational.com
+
+# === 2025 NEW SMART TV ACR DOMAINS ===
+# Samsung ACR
+ams-fe-feat1-ur.infolink.co.kr
+acr-samsung.samsungcloudsolution.com
+ads.samsung.com
+metrics.samsung.com
+sdk.samsungtifa.com
+
+# LG ACR
+acr-id.ad.lgsmartad.com
+ad.lgsmartad.com
+ads.lgsmartad.com
+tgt.lgads.com
+
+# Roku ACR
+metrics.roku.com
+odc-router.roku.com
+
+# Vizio ACR
+nbcudigital.ad.vizio.com
+
+# Android TV
+androidtvads.google.com
+partnerad.l.google.com
