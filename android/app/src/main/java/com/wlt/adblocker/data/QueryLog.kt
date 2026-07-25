@@ -84,4 +84,43 @@ class QueryLog(private val capacity: Int = DEFAULT_CAPACITY) {
 
     /** Clears all entries. */
     fun clear() = lock.write { buffer.clear() }
+
+    /**
+     * Phase 10d: Exports the query log as CSV for analysis in
+     * spreadsheets or external tools.
+     *
+     * Format: timestamp,domain,blocked,reason,sdk,package
+     */
+    fun toCSV(): String {
+        lock.read {
+            val sb = StringBuilder()
+            sb.append("timestamp,domain,blocked,reason,sdk,package\n")
+            for (entry in buffer) {
+                val ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                    .format(java.util.Date(entry.timestamp))
+                val domain = entry.domain.replace(",", ";")
+                val reason = entry.reason.replace(",", ";")
+                val sdk = (entry.sdk ?: "").replace(",", ";")
+                val pkg = (entry.packageName ?: "").replace(",", ";")
+                sb.append("$ts,$domain,${entry.blocked},$reason,$sdk,$pkg\n")
+            }
+            return sb.toString()
+        }
+    }
+
+    /**
+     * Phase 10d: Returns a summary of blocked categories for stats.
+     */
+    fun blockedSummary(): Map<String, Int> {
+        lock.read {
+            val counts = mutableMapOf<String, Int>()
+            for (entry in buffer) {
+                if (entry.blocked) {
+                    val key = entry.reason.ifBlank { "unknown" }
+                    counts[key] = (counts[key] ?: 0) + 1
+                }
+            }
+            return counts.toMap()
+        }
+    }
 }

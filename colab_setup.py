@@ -28,27 +28,29 @@ if not os.path.exists("/root/android-sdk/cmdline-tools/latest/bin/sdkmanager"):
     subprocess.run("rm -rf /root/android-sdk/cmdline-tools/latest", shell=True)
     subprocess.run("mv /root/android-sdk/cmdline-tools/cmdline-tools /root/android-sdk/cmdline-tools/latest", shell=True)
 
-print("⏳ Downloading Bulletproof System Image (API 28 Google APIs x86_64)...", flush=True)
+print("⏳ Downloading Lightweight AOSP System Image (API 28 Default x86_64)...", flush=True)
 subprocess.run("yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1", shell=True)
-subprocess.run('/root/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-28" "build-tools;28.0.3" "system-images;android-28;google_apis;x86_64" "emulator" "platform-tools" > /dev/null 2>&1', shell=True)
+subprocess.run('/root/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-28" "build-tools;28.0.3" "system-images;android-28;default;x86_64" "emulator" "platform-tools" > /dev/null 2>&1', shell=True)
 print("✅ Android SDK Installed!", flush=True)
 
-# Step 2: Wiping Stale AVDs & Creating Dual API 28 AVDs
-print("\n📱 [2/3] Creating Dual API 28 AVDs & FastAPI Microservice...", flush=True)
-if not os.path.exists("/root/.android/avd/colab_android_1.avd"):
-    subprocess.run('echo "no" | /root/android-sdk/cmdline-tools/latest/bin/avdmanager create avd -n colab_android_1 -k "system-images;android-28;google_apis;x86_64" -c 2048M --force', shell=True)
-    subprocess.run('echo "no" | /root/android-sdk/cmdline-tools/latest/bin/avdmanager create avd -n colab_android_2 -k "system-images;android-28;google_apis;x86_64" -c 2048M --force', shell=True)
+# Step 2: Wiping Stale AVDs & Creating Dual AOSP AVDs
+print("\n📱 [2/3] Creating Dual Lightweight AOSP AVDs...", flush=True)
+subprocess.run("pkill -9 -f emulator > /dev/null 2>&1", shell=True)
+subprocess.run("rm -rf /root/.android/avd/*", shell=True)
 
-    avd1_ini = "/root/.android/avd/colab_android_1.avd/config.ini"
-    avd2_ini = "/root/.android/avd/colab_android_2.avd/config.ini"
-    ini_addon = "\ndisk.dataPartition.size=2048M\nhw.ramSize=2048\nvm.heapSize=256\n"
+subprocess.run('echo "no" | /root/android-sdk/cmdline-tools/latest/bin/avdmanager create avd -n colab_android_1 -k "system-images;android-28;default;x86_64" -c 2048M --force', shell=True)
+subprocess.run('echo "no" | /root/android-sdk/cmdline-tools/latest/bin/avdmanager create avd -n colab_android_2 -k "system-images;android-28;default;x86_64" -c 2048M --force', shell=True)
 
-    if os.path.exists(avd1_ini):
-        with open(avd1_ini, "a") as f:
-            f.write(ini_addon)
-    if os.path.exists(avd2_ini):
-        with open(avd2_ini, "a") as f:
-            f.write(ini_addon)
+avd1_ini = "/root/.android/avd/colab_android_1.avd/config.ini"
+avd2_ini = "/root/.android/avd/colab_android_2.avd/config.ini"
+ini_addon = "\ndisk.dataPartition.size=2048M\nhw.ramSize=2048\nvm.heapSize=256\n"
+
+if os.path.exists(avd1_ini):
+    with open(avd1_ini, "a") as f:
+        f.write(ini_addon)
+if os.path.exists(avd2_ini):
+    with open(avd2_ini, "a") as f:
+        f.write(ini_addon)
 
 server_code = """
 import os
@@ -201,16 +203,50 @@ def exec_shell(req: ShellReq):
 with open("server.py", "w") as f:
     f.write(server_code)
 
-print("✅ FastAPI Server code updated with container-compatible push+install!", flush=True)
+print("✅ FastAPI Server code created!", flush=True)
 
-# Step 3: Restart FastAPI Server & Cloudflare
-print("\n🚀 [3/3] Restarting Microservice Engine...", flush=True)
+# Step 3: Launch FastAPI & Cloudflare IMMEDIATELY, then boot emulators
+print("\n🚀 [3/3] Launching Microservice & Cloudflare Tunnel IMMEDIATELY...", flush=True)
 subprocess.run("pkill -9 -f uvicorn > /dev/null 2>&1", shell=True)
+subprocess.run("pkill -9 -f cloudflared > /dev/null 2>&1", shell=True)
+subprocess.run("pkill -9 -f emulator > /dev/null 2>&1", shell=True)
+subprocess.run("/root/android-sdk/platform-tools/adb kill-server > /dev/null 2>&1", shell=True)
+subprocess.run("/root/android-sdk/platform-tools/adb start-server > /dev/null 2>&1", shell=True)
 time.sleep(1)
 
-print("🚀 Launching Updated FastAPI Server on Port 8000...", flush=True)
+print("🚀 Launching FastAPI Server on Port 8000...", flush=True)
 subprocess.run("nohup uvicorn server:app --host 0.0.0.0 --port 8000 > /tmp/server8000.log 2>&1 &", shell=True)
 time.sleep(2)
 
-print("✨ FastAPI Server updated and LIVE!", flush=True)
-sys.exit(0)
+print("🌐 Launching Cloudflare Tunnel Background Daemon...", flush=True)
+subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb", shell=True)
+subprocess.run("dpkg -i cloudflared-linux-amd64.deb > /dev/null 2>&1", shell=True)
+
+TUNNEL_TOKEN = "eyJhIjoiZDU4NWQ3ZmFlZWZhZjgyMTIxNWQ0OTc1ZThkYTFkNzEiLCJzIjoiNnd4N0llMGtWWmlXOElrZS9xajZiMSttcFVSbVEyRzFCQUpFajIzNUs1WT0iLCJ0IjoiYzIyMzU1N2YtZDg4Zi00ZmEzLWI2N2QtYTM2ODM4NTRjZDRjIn0="
+subprocess.Popen(f"nohup cloudflared tunnel run --url http://localhost:8000 --token {TUNNEL_TOKEN} > /tmp/tunnel.log 2>&1 &", shell=True)
+time.sleep(3)
+print("✨ Cloudflare Tunnel & FastAPI Server are LIVE on port 8000!", flush=True)
+
+print("\n🚀 Booting Dual AOSP Emulators (API 28 Default x86_64)...", flush=True)
+subprocess.run("nohup /root/android-sdk/emulator/emulator -avd colab_android_1 -partition-size 2048 -memory 2048 -no-accel -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -port 5554 > /tmp/emulator1.log 2>&1 &", shell=True)
+subprocess.run("nohup /root/android-sdk/emulator/emulator -avd colab_android_2 -partition-size 2048 -memory 2048 -no-accel -gpu swiftshader_indirect -no-window -no-audio -no-boot-anim -port 5556 > /tmp/emulator2.log 2>&1 &", shell=True)
+
+print("⏳ Waiting for Android OS Kernel & Package Manager Service...", flush=True)
+count = 0
+while True:
+    b1 = subprocess.run("/root/android-sdk/platform-tools/adb -s emulator-5554 shell getprop sys.boot_completed", shell=True, capture_output=True, text=True)
+    b2 = subprocess.run("/root/android-sdk/platform-tools/adb -s emulator-5556 shell getprop sys.boot_completed", shell=True, capture_output=True, text=True)
+    
+    p1 = subprocess.run("/root/android-sdk/platform-tools/adb -s emulator-5554 shell pm path android", shell=True, capture_output=True, text=True)
+    p2 = subprocess.run("/root/android-sdk/platform-tools/adb -s emulator-5556 shell pm path android", shell=True, capture_output=True, text=True)
+    
+    ready1 = b1.stdout.strip() == "1" and p1.stdout.strip().startswith("package:")
+    ready2 = b2.stdout.strip() == "1" and p2.stdout.strip().startswith("package:")
+    
+    if ready1 and ready2:
+        print("\n🎉 BOTH AOSP Emulators (emulator-5554 & emulator-5556) are 100% ONLINE!", flush=True)
+        print("🚀 Daemons running in background. Ready for connections at https://ollama.kushalneedsmcp.online", flush=True)
+        break
+    count += 1
+    print(f"[{count}] Booting... E1: {'READY' if ready1 else 'WAIT'}, E2: {'READY' if ready2 else 'WAIT'}", flush=True)
+    time.sleep(5)
