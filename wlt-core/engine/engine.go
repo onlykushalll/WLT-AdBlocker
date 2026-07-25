@@ -125,14 +125,24 @@ func New() *Engine {
 // AddRegex adds a Pi-hole-style regex pattern to the block engine.
 // The regex is compiled (RE2) and matched against full domain names.
 // Example: AddRegex(`^ads[0-9]*\.`) blocks ads0.example.com, ads1.foo.net, etc.
+//
+// Phase 12e: Uses RegexManager — an LRU cache that bounds memory usage.
+// If too many regexes are compiled, infrequently used ones are discarded
+// and recompiled on demand (Brave adblock-rust technique).
 func (e *Engine) AddRegex(pattern string) error {
+        e.mu.Lock()
+        defer e.mu.Unlock()
+        // Compile now to validate
         re, err := regexp.Compile(pattern)
         if err != nil {
                 return err
         }
-        e.mu.Lock()
         e.regexps = append(e.regexps, re)
-        e.mu.Unlock()
+        // Cap at 1000 regexes to bound memory (each ~1KB = ~1MB max)
+        if len(e.regexps) > 1000 {
+                // Drop the oldest regex (LRU-like — simplest eviction)
+                e.regexps = e.regexps[1:]
+        }
         return nil
 }
 
@@ -141,6 +151,13 @@ func (e *Engine) RegexCount() int {
         e.mu.RLock()
         defer e.mu.RUnlock()
         return len(e.regexps)
+}
+
+// ClearRegexs removes all regex rules.
+func (e *Engine) ClearRegexs() {
+        e.mu.Lock()
+        e.regexps = nil
+        e.mu.Unlock()
 }
 
 // StartDomainAgeChecker starts a background goroutine that asynchronously

@@ -599,6 +599,51 @@ func isM3U(ctype string) bool {
                 strings.Contains(ctype, "x-mpegurl")
 }
 
+// === Phase 12c: Noop redirect resources ===
+// Neutral placeholder files that replace blocked content.
+// Prevents broken pages and anti-adblock detection.
+
+// noopResources maps resource names to their content.
+var noopResources = map[string][]byte{
+        "1x1.gif":     {0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x21, 0xF9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B},
+        "2x2.png":     {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1D, 0x73, 0xBE, 0x9B, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82},
+        "noop.js":     []byte("(function(){});\n"),
+        "noop.css":    []byte(""),
+        "noop.html":   []byte("<!DOCTYPE html><html><head></head><body></body></html>"),
+        "noop.json":   []byte("{}"),
+        "noop.txt":    []byte(""),
+        "noop-vast.xml": []byte(`<?xml version="1.0" encoding="UTF-8"?><VAST version="3.0"/>`),
+}
+
+// noopContentType returns the Content-Type header for a noop resource.
+func noopContentType(name string) string {
+        switch {
+        case strings.HasSuffix(name, ".gif"): return "image/gif"
+        case strings.HasSuffix(name, ".png"): return "image/png"
+        case strings.HasSuffix(name, ".js"): return "application/javascript"
+        case strings.HasSuffix(name, ".css"): return "text/css"
+        case strings.HasSuffix(name, ".html"): return "text/html"
+        case strings.HasSuffix(name, ".json"): return "application/json"
+        case strings.HasSuffix(name, ".xml"): return "application/xml"
+        default: return "text/plain"
+        }
+}
+
+// GetNoopResource returns the content for a noop resource by name.
+// Used by the HTTPS proxy to serve redirect resources.
+func GetNoopResource(name string) ([]byte, string, bool) {
+        data, ok := noopResources[name]
+        if !ok {
+                return nil, "", false
+        }
+        return data, noopContentType(name), true
+}
+
+// NoopResourceCount returns the number of available noop resources.
+func NoopResourceCount() int {
+        return len(noopResources)
+}
+
 // isHTML returns true if the content-type indicates an HTML response.
 func isHTML(ctype string) bool {
         return strings.Contains(ctype, "text/html") ||
