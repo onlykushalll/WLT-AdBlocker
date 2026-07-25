@@ -146,6 +146,50 @@ object DnsPacketParser {
         return targets
     }
 
+    /** Phase 9a: Extracts A/AAAA record IPs from a DNS response.
+     *  Used to populate the DomainIpCache for IP→domain reverse lookup. */
+    fun extractAnswerIps(packet: ByteArray): List<String> {
+        if (packet.size < 12) return emptyList()
+        val anCount = NetBytes.getUShort(packet, 6)
+        if (anCount == 0) return emptyList()
+        val qdCount = NetBytes.getUShort(packet, 4)
+        var pos = 12
+        repeat(qdCount) {
+            val r = readName(packet, pos) ?: return emptyList()
+            pos = r.second + 4
+            if (pos > packet.size) return emptyList()
+        }
+        val ips = ArrayList<String>()
+        repeat(anCount) {
+            val nameResult = readName(packet, pos) ?: return ips
+            pos = nameResult.second
+            if (pos + 10 > packet.size) return ips
+            val rrType = NetBytes.getUShort(packet, pos)
+            val rdLen = NetBytes.getUShort(packet, pos + 8)
+            pos += 10
+            if (pos + rdLen > packet.size) return ips
+            when (rrType) {
+                TYPE_A -> {
+                    if (rdLen == 4) {
+                        ips.add("${packet[pos].toInt() and 0xFF}.${packet[pos+1].toInt() and 0xFF}.${packet[pos+2].toInt() and 0xFF}.${packet[pos+3].toInt() and 0xFF}")
+                    }
+                }
+                TYPE_AAAA -> {
+                    if (rdLen == 16) {
+                        val sb = StringBuilder()
+                        for (i in 0 until 16 step 2) {
+                            if (i > 0) sb.append(':')
+                            sb.append(String.format("%x", ((packet[pos+i].toInt() and 0xFF) shl 8) or (packet[pos+i+1].toInt() and 0xFF)))
+                        }
+                        ips.add(sb.toString())
+                    }
+                }
+            }
+            pos += rdLen
+        }
+        return ips
+    }
+
     /** Returns true if the packet looks like a DNS query (QR bit clear, opcode 0,
      *  at least one question). Used by the VPN loop to filter out garbage. */
     fun isQuery(packet: ByteArray): Boolean {

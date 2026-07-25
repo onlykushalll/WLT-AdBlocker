@@ -148,7 +148,9 @@ class WltVpnService : VpnService() {
     private lateinit var dnsResolver: DnsResolver
     private lateinit var uidResolver: UidResolver
     private lateinit var dnsCache: DnsCache
+    private lateinit var domainIpCache: DomainIpCache
     val blockStats = BlockStats()
+    val appNetworkStats = com.wlt.adblocker.data.AppNetworkStats()
 
     // Phase 8b/8c: Firewall toggles
     @Volatile private var blockDoTPort = true       // Block DNS-over-TLS (port 853)
@@ -194,6 +196,7 @@ class WltVpnService : VpnService() {
         dnsResolver = DnsResolver(applicationContext)
         uidResolver = UidResolver(applicationContext)
         dnsCache = DnsCache(10_000) // Phase 8a: 10K entry LRU cache (~1MB)
+        domainIpCache = DomainIpCache(5_000) // Phase 9a: IP→domain reverse lookup
 
         // Load blocklists in background — don't block onCreate.
         serviceScope.launch {
@@ -523,6 +526,8 @@ class WltVpnService : VpnService() {
             dnsCache.put(domain, response, blocked = true)
             writeResponse(ipHeader, udp, response)
             blockStats.incBlocked(domain, sdk)
+            // Phase 9b: Record per-app stats
+            appNetworkStats.recordQuery(pkg, uid, domain, blocked = true, trackerName = sdk)
             queryLog.add(
                 QueryLog.Entry(
                     domain = domain,
@@ -588,8 +593,15 @@ class WltVpnService : VpnService() {
         // === ALLOWED — pass through the upstream response ===
         // Phase 8a: Cache the allowed response (upstream TTL, capped at 1 hour)
         dnsCache.put(domain, upstream, blocked = false, upstreamTtl = 300)
+        // Phase 9a: Store IP→domain mapping for reverse lookup
+        val answerIps = DnsPacketParser.extractAnswerIps(upstream)
+        for (ip in answerIps) {
+            domainIpCache.put(ip, domain)
+        }
         writeResponse(ipHeader, udp, upstream)
         blockStats.incAllowed()
+        // Phase 9b: Record per-app stats (allowed)
+        appNetworkStats.recordQuery(pkg, uid, domain, blocked = false, trackerName = sdk)
         queryLog.add(
             QueryLog.Entry(
                 domain = domain,
