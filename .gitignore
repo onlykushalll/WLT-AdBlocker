@@ -118,3 +118,10 @@ skills/
 /quick.bat
 /rebuild.bat
 /wait.bat
+
+
+# AI & Session residue
+.agents/
+.claude/
+.codex/
+*.handoff.md
