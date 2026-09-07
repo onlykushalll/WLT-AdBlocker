@@ -31,6 +31,7 @@ import com.wlt.adblocker.data.PrefsRepository
 import com.wlt.adblocker.ui.screens.AppFirewallScreen
 import com.wlt.adblocker.ui.screens.BlocklistsScreen
 import com.wlt.adblocker.ui.screens.CustomRulesScreen
+import com.wlt.adblocker.ui.screens.DiagnosticScreen
 import com.wlt.adblocker.ui.screens.DashboardScreen
 import com.wlt.adblocker.ui.screens.DnsLatencyScreen
 import com.wlt.adblocker.ui.screens.ForensicsScreen
@@ -87,9 +88,10 @@ fun WltApp() {
                 coroutineScope.launch {
                     PrefsRepository(context).setFirstLaunchDone()
                     firstLaunchState = false
-                    navController.navigate(Routes.DASHBOARD) {
-                        popUpTo(Routes.ONBOARDING) { inclusive = true }
-                    }
+                    // CRITICAL FIX: Don't call navController.navigate() here —
+                    // the NavHost hasn't been rendered yet (we return before it).
+                    // Setting firstLaunchState = false triggers recomposition,
+                    // which renders the NavHost starting at DASHBOARD.
                 }
             },
         )
@@ -158,6 +160,7 @@ private fun WltNavHost(
         composable(Routes.DASHBOARD) {
             DashboardScreen(
                 onOpenForensics = { navController.navigate(Routes.FORENSICS) },
+                onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
             )
         }
         composable(Routes.QUERIES) {
@@ -178,6 +181,9 @@ private fun WltNavHost(
         composable(Routes.FORENSICS) {
             ForensicsScreen()
         }
+        composable(Routes.DIAGNOSTICS) {
+            DiagnosticScreen()
+        }
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onOpenDnsLatency = { navController.navigate(Routes.DNS_LATENCY) },
@@ -197,6 +203,7 @@ private object Routes {
     const val FIREWALL = "firewall"
     const val DNS_LATENCY = "dns_latency"
     const val FORENSICS = "forensics"
+    const val DIAGNOSTICS = "diagnostics"
     const val SETTINGS = "settings"
 }
 

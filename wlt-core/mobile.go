@@ -17,7 +17,6 @@ import (
         "github.com/wlt/adblocker/filter"
         "github.com/wlt/adblocker/internal/ja4"
         "github.com/wlt/adblocker/internal/ruleparser"
-        "github.com/wlt/adblocker/internal/wireguard"
 )
 
 // Engine wraps engine.Engine for gomobile consumption.
@@ -44,15 +43,21 @@ func NewEngine() (*Engine, error) {
 
 // LoadDefaultBlocklists loads the bundled WLT blocklists from the given
 // assets directory. Safe to call multiple times.
+//
+// CRITICAL FIX (Task 60): the previous version silently swallowed errors from
+// LoadFromAssets (returning nil). This meant if the assetsDir path was wrong,
+// the Go engine would get 0 rules and shouldBlock() would always return false
+// — with NO indication anything went wrong. Now we return the error so the
+// Kotlin side can log and report it via the DiagnosticScreen.
 func (e *Engine) LoadDefaultBlocklists(assetsDir string) error {
         ll, err := filter.LoadFromAssets(assetsDir)
         if err != nil {
-                // Don't fail hard — the engine can still operate with an empty
-                // blocklist. The caller can inspect Errors via StatsJSON.
-                return nil
+                return fmt.Errorf("LoadFromAssets(%s): %w", assetsDir, err)
         }
+        loaded := 0
         for _, d := range ll.Domains {
                 e.eng.AddBlockDomain(d)
+                loaded++
         }
         return nil
 }
@@ -425,63 +430,3 @@ func (c *CA) StopHttpsProxy() {
 
 // IsRunning reports whether the HTTPS proxy is currently active.
 func (c *CA) IsRunning() bool { return c.started }
-
-// === Phase 11a: WireGuard tunnel support ===
-
-// WGTunnel manages a WireGuard tunnel for encrypted DNS upstream.
-type WGTunnel struct {
-        tunnel *wireguard.Tunnel
-}
-
-// NewWGTunnel creates a new WireGuard tunnel manager.
-func NewWGTunnel() *WGTunnel {
-        return &WGTunnel{
-                tunnel: wireguard.NewTunnel(),
-        }
-}
-
-// ParseWGConfig parses a WireGuard .conf file content and stores it.
-// Returns an error if the config is invalid.
-func (w *WGTunnel) ParseWGConfig(conf string) error {
-        config, err := wireguard.ParseConfig(conf)
-        if err != nil {
-                return err
-        }
-        w.tunnel.SetConfig(config)
-        return nil
-}
-
-// WGTunnelUp brings the tunnel up. Returns an error if no config is set.
-func (w *WGTunnel) WGTunnelUp() error {
-        return w.tunnel.Up()
-}
-
-// WGTunnelDown brings the tunnel down.
-func (w *WGTunnel) WGTunnelDown() {
-        w.tunnel.Down()
-}
-
-// WGTunnelIsUp returns true if the tunnel is currently up.
-func (w *WGTunnel) WGTunnelIsUp() bool {
-        return w.tunnel.IsUp()
-}
-
-// WGTunnelState returns the tunnel state (0=down, 1=up).
-func (w *WGTunnel) WGTunnelState() int {
-        return w.tunnel.State()
-}
-
-// WGTunnelRxBytes returns total bytes received through the tunnel.
-func (w *WGTunnel) WGTunnelRxBytes() int64 {
-        return int64(w.tunnel.RxBytes())
-}
-
-// WGTunnelTxBytes returns total bytes sent through the tunnel.
-func (w *WGTunnel) WGTunnelTxBytes() int64 {
-        return int64(w.tunnel.TxBytes())
-}
-
-// WGTunnelSummary returns a human-readable summary of the tunnel config.
-func (w *WGTunnel) WGTunnelSummary() string {
-        return w.tunnel.GetConfig().Summary()
-}

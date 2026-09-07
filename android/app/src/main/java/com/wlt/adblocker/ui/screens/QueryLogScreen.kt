@@ -18,8 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,9 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wlt.adblocker.data.QueryLog
 import kotlinx.coroutines.delay
@@ -62,6 +62,12 @@ private enum class QueryFilter(val label: String) {
  *
  * SDK badges (game-controller icon) appear next to game-ad blocks — they
  * show which ad SDK the domain belongs to (AdMob, Unity, etc.).
+ *
+ * Polish (Task C-ANDROID-UI-POLISH):
+ *  - Header now shows total count badge
+ *  - Empty state has an icon + clear "what to do next" message
+ *  - Each row has proper content descriptions for accessibility
+ *  - BLOCKED / ALLOWED pill instead of plain text label
  */
 @Composable
 fun QueryLogScreen() {
@@ -84,11 +90,36 @@ fun QueryLogScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Query Log",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            // Count badge — total entries in current view.
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = "${entries.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        Spacer(modifier = Modifier.size(4.dp))
         Text(
-            text = "Query Log",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
+            text = "Most recent DNS queries, newest first.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.size(8.dp))
 
@@ -129,11 +160,21 @@ fun QueryLogScreen() {
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "No queries yet. Start the VPN to begin logging.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Filled.Dns,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(32.dp),
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text(
+                            text = "No queries yet. Start the VPN to begin logging.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
@@ -158,7 +199,8 @@ private fun QueryLogRow(entry: QueryLog.Entry) {
         Icon(
             imageVector = if (entry.blocked) Icons.Filled.Block
             else Icons.Filled.CheckCircle,
-            contentDescription = null,
+            contentDescription = if (entry.blocked) "Blocked: ${entry.domain}"
+            else "Allowed: ${entry.domain}",
             tint = if (entry.blocked) MaterialTheme.colorScheme.error
             else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp),
@@ -170,22 +212,43 @@ private fun QueryLogRow(entry: QueryLog.Entry) {
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "${entry.reason}${entry.sdk?.let { " · $it" } ?: ""}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         if (entry.sdk != null) {
             Icon(
                 imageVector = Icons.Filled.SportsEsports,
-                contentDescription = null,
+                contentDescription = "Game ad SDK: ${entry.sdk}",
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(4.dp))
         }
+        // BLOCKED / ALLOWED pill — color-coded for quick scanning.
+        val pillColor = if (entry.blocked) MaterialTheme.colorScheme.error
+        else MaterialTheme.colorScheme.primary
+        Surface(
+            color = pillColor.copy(alpha = 0.15f),
+            shape = RoundedCornerShape(4.dp),
+        ) {
+            Text(
+                text = if (entry.blocked) "BLOCKED" else "ALLOWED",
+                style = MaterialTheme.typography.labelSmall,
+                color = pillColor,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = timeFmt.format(Date(entry.timestamp)),
             style = MaterialTheme.typography.labelSmall,

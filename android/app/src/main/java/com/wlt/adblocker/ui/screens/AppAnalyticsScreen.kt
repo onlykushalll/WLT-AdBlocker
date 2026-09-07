@@ -5,8 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +13,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wlt.adblocker.data.AppNetworkStats
-import com.wlt.adblocker.data.BlockCategory
 import java.text.NumberFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,7 +105,7 @@ private fun AppStatsCard(stats: AppNetworkStats.AppStats) {
                 Spacer(Modifier.height(8.dp))
                 Text("Trackers:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 stats.trackers.entries.sortedByDescending { it.value.get() }.take(5).forEach { (tracker, count) ->
-                    Text("  • $tracker ($count)", style = MaterialTheme.typography.bodySmall)
+                    Text("  • $tracker (${count.get()})", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

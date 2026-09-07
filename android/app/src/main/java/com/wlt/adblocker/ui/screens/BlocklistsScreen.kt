@@ -217,7 +217,7 @@ private fun BlocklistCard(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = list.icon,
-                        contentDescription = null,
+                        contentDescription = "${list.name} category",
                         tint = if (list.isAllowlist) MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.primary,
                     )

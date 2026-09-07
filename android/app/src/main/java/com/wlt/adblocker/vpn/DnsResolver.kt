@@ -47,15 +47,17 @@ class DnsResolver(private val context: Context) {
             val udpPort: Int = 53,
         )
 
+        // CRITICAL (Bug 4 fix): use IP-based DoH URLs, NOT domain-based. A
+        // domain URL like "https://cloudflare-dns.com/dns-query" creates a
+        // circular dependency: resolving "cloudflare-dns.com" requires DNS,
+        // which flows through our VPN, which tries DoH to that same hostname…
+        // and if the hostname is in our own blocklist (DoH bypass prevention),
+        // it's blocked outright → DoH fails → falls back to plain UDP.
+        // With a bare-IP URL, no DNS resolution is needed and the HTTPS cert
+        // for the IP is valid (Cloudflare/Google/Quad9/AdGuard all serve valid
+        // certs on their bare IPs). This also prevents the DoH provider domain
+        // from being accidentally sinkholed by our own filters.
         val UPSTREAMS: List<Upstream> = listOf(
-            // CRITICAL FIX: Use IP-based DoH URLs, not domain-based.
-            // Domain-based URLs (cloudflare-dns.com) require DNS resolution,
-            // but our own blocklist blocks DoH bypass domains including
-            // cloudflare-dns.com. This creates a circular dependency:
-            // 1. Query for cloudflare-dns.com → goes to VPN TUN
-            // 2. WLT blocks it (DoH bypass prevention) → NXDOMAIN
-            // 3. DoH can't connect → DNS resolution fails
-            // IP-based URLs avoid this: 1.1.1.1 doesn't need DNS resolution.
             Upstream("cloudflare", "https://1.1.1.1/dns-query", "1.1.1.1"),
             Upstream("google", "https://8.8.8.8/dns-query", "8.8.8.8"),
             Upstream("quad9", "https://9.9.9.9/dns-query", "9.9.9.9"),
@@ -192,7 +194,14 @@ class DnsResolver(private val context: Context) {
      *  Used by [measureUdpLatency] for the latency test. */
     private fun buildMinimalQuery(domain: String): ByteArray {
         val labels = domain.split('.').filter { it.isNotEmpty() }
-        val questionLen = 1 + labels.sumOf { it.length + 1 } + 1 + 4 // length bytes + labels + root + QTYPE + QCLASS
+        // Question section layout: per-label (1 length byte + N label bytes),
+        // then 1 root (0x00) byte, then QTYPE (2) + QCLASS (2) = 4 bytes.
+        // CRITICAL FIX (B-KOTLIN-VPN-DEBUG): the old formula had a spurious
+        // leading "1 +", producing a packet 1 byte too long with a trailing
+        // zero byte after the question section. Strict DNS servers may reject
+        // this as malformed (FORMERR). The correct size is:
+        //   sum(label.length + 1) + 1 (root) + 4 (QTYPE+QCLASS)
+        val questionLen = labels.sumOf { it.length + 1 } + 1 + 4
         val packet = ByteArray(12 + questionLen)
         // Transaction ID (random)
         val txId = (System.currentTimeMillis() and 0xFFFF).toInt()

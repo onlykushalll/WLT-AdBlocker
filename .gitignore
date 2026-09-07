@@ -74,3 +74,47 @@ mini-services/
 
 # === Skills ===
 skills/
+
+# === Test & Emulator Scratch ===
+/*.png
+/*.txt
+/*.log
+/*-test.bat
+/*-test.py
+/*test*.bat
+/*test*.py
+/*test*.txt
+/tap-*.bat
+/tap-*.txt
+/adb-*.bat
+/adb-*.txt
+/dash-*.bat
+/rd*.bat
+/rq*.bat
+/rt*.bat
+/rc.bat
+/cb.bat
+/rft.bat
+/rg.bat
+/rvpn.bat
+/rwl.bat
+/wlt-logs.*
+/split-apk.ps1
+/start-server.bat
+/build-apk.bat
+/check-result.py
+/qt.py
+/read-adb.bat
+/read-nav.bat
+/status.txt
+/check.bat
+/read-results.bat
+/crash.bat
+/do-build-aar.bat
+/do-build.bat
+/find-switch.bat
+/grant.bat
+/navigate.bat
+/quick.bat
+/rebuild.bat
+/wait.bat

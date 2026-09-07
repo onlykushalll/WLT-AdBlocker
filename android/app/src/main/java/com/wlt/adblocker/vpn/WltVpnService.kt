@@ -82,9 +82,16 @@ class WltVpnService : VpnService() {
         private const val CHANNEL_ID = "wlt_vpn_status"
         private const val NOTIFICATION_ID = 1001
 
-        private const val VPN_ADDRESS = "10.66.6.6"      // TUN interface address
-        private const val VPN_ROUTE = "10.66.6.6"        // ONLY route VPN address (DNS-only mode)
-        private const val VPN_DNS = "10.66.6.6"          // DNS server = VPN address (system sends DNS here)
+        // CRITICAL (Bug 1 revised fix): we DO route 0.0.0.0/0 through the
+        // TUN. This is required — without a default route, Android keeps the
+        // underlying network (WIFI) as the default, so apps use the WIFI DNS
+        // server (10.0.2.3) directly and our TUN never sees any DNS queries.
+        // The [Forwarder] relays non-DNS UDP/TCP back to the real network via
+        // protected sockets, so the internet keeps working while we intercept
+        // DNS. This is the standard VpnService adblocker architecture used by
+        // DNS66, NetGuard, Blokada, RethinkDNS, etc.
+        private const val VPN_ADDRESS = "10.66.6.6"      // TUN address + DNS sink
+        private const val VPN_ROUTE = "0.0.0.0"          // default route → TUN
         private const val VPN_MTU = 1500
         private const val DNS_PORT = 53
         private const val PACKET_BUFFER_SIZE = 32_767
@@ -152,9 +159,15 @@ class WltVpnService : VpnService() {
     val blockStats = BlockStats()
     val appNetworkStats = com.wlt.adblocker.data.AppNetworkStats()
 
-    // Phase 8b/8c: Firewall toggles
     @Volatile private var blockDoTPort = true       // Block DNS-over-TLS (port 853)
     @Volatile private var blockQuicPort = false     // Block QUIC/HTTP3 (UDP 443) — opt-in
+
+    /** Full-capture forwarder. When the VPN routes 0.0.0.0/0, ALL traffic
+     *  enters the TUN. DNS is handled by [handleDnsQuery]; everything else
+     *  (non-DNS UDP, all TCP) is relayed back to the real network by this
+     *  forwarder via protected sockets. Without it, routing 0.0.0.0/0 would
+     *  swallow all traffic and break the internet. */
+    private var forwarder: Forwarder? = null
 
     // === VPN state ===
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -180,6 +193,14 @@ class WltVpnService : VpnService() {
     private var packetJob: Job? = null
     private var statsJob: Job? = null
 
+    /** CountDownLatch that reaches zero once blocklists are loaded.
+     *  [startVpn] awaits it (10s timeout) so the packet loop never starts
+     *  before the block engine is populated. Fixes Bug 2/5: previously the
+     *  packet loop could process queries while blocklists were still loading
+     *  in a background coroutine, so the first few seconds of traffic flowed
+     *  through unblocked. */
+    private var blocklistsLoaded: java.util.concurrent.CountDownLatch? = null
+
     // ============================================================
     // Lifecycle
     // ============================================================
@@ -198,17 +219,33 @@ class WltVpnService : VpnService() {
         dnsCache = DnsCache(10_000) // Phase 8a: 10K entry LRU cache (~1MB)
         domainIpCache = DomainIpCache(5_000) // Phase 9a: IP→domain reverse lookup
 
-        // CRITICAL FIX: Load blocklists SYNCHRONOUSLY before VPN starts.
-        // Previously this was async, so the VPN started with empty blocklists
-        // and nothing was blocked. Now we load in onCreate (blocking) so the
-        // trie is populated before the user can start the VPN.
-        try {
-            kotlinBlockEngine.loadBundledBlocklists()
-            goBlockEngine.loadBundledBlocklists()
-            Log.i(TAG, "Blocklists loaded synchronously in onCreate")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load blocklists in onCreate", e)
-        }
+        // CRITICAL (Bug 2/5 fix): load blocklists in a background THREAD (not a
+        // coroutine) and signal completion via a CountDownLatch. startVpn()
+        // awaits this latch before starting the packet loop, so queries are
+        // never processed before the block engine is ready. Using a raw Thread
+        // (not a coroutine) lets startVpn await the latch synchronously without
+        // a runBlocking deadlock. The 10s await timeout in startVpn means even
+        // if loading is slow, the VPN still comes up (with partial lists).
+        blocklistsLoaded = java.util.concurrent.CountDownLatch(1)
+        Thread {
+            try {
+                kotlinBlockEngine.loadBundledBlocklists()
+                goBlockEngine.loadBundledBlocklists()
+                Log.i(TAG, "Blocklists loaded (Kotlin + Go engines ready)")
+                // CRITICAL: update DiagnosticState with the correct rule count
+                // AFTER blocklists have loaded. The initial engineStatus was set
+                // during GoBlockEngine init (before blocklists loaded) with ruleCount=0.
+                DiagnosticState.setEngineStatus(goBlockEngine.getDiagnosticStatus())
+                // Deep diagnostic: run Go engine self-test to verify shouldBlock()
+                // actually works. This proves the Go engine's blocking logic is
+                // functional, not just that it loaded.
+                goBlockEngine.runSelfTest()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load blocklists", e)
+            } finally {
+                blocklistsLoaded?.countDown()
+            }
+        }.start()
 
         // Load persisted pause state in background. The non-suspending
         // [PrefsRepository.pauseUntilSnapshot] returns 0 until this loads,
@@ -249,6 +286,14 @@ class WltVpnService : VpnService() {
             }
             ACTION_START, null -> {
                 Log.i(TAG, "Start requested")
+                // CRITICAL (Bug 6 fix): call startForeground() IMMEDIATELY, before
+                // any blocking work. Android requires startForegroundService() to
+                // be followed by startForeground() within 5 seconds, or the system
+                // kills the service with "Stopping service due to app idle". The
+                // old code called startForeground() at the END of startVpn(),
+                // after a 10s blocklist wait + establish() — way too late.
+                ensureNotificationChannel()
+                startForeground(NOTIFICATION_ID, buildNotification())
                 startVpn()
             }
         }
@@ -280,12 +325,38 @@ class WltVpnService : VpnService() {
             Log.i(TAG, "VPN already running, ignoring START")
             return
         }
+        // CRITICAL (Bug 1 fix): wait for blocklists to finish loading before
+        // starting the packet loop. 10s timeout — if loading takes longer, we
+        // proceed anyway (better partial blocking than no VPN).
+        try {
+            val loaded = blocklistsLoaded?.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            if (loaded == false) {
+                Log.w(TAG, "Blocklists not fully loaded after 10s — starting VPN anyway")
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.w(TAG, "Interrupted while waiting for blocklists", e)
+        }
+
+        // Instantiate the forwarder BEFORE establishing the VPN (it needs the
+        // VpnService reference to protect() its sockets).
+        forwarder = Forwarder(this) { packet ->
+            val out = outputFile ?: return@Forwarder
+            synchronized(outputLock) {
+                try { out.write(packet) }
+                catch (e: IOException) { Log.w(TAG, "Forwarder write failed", e) }
+            }
+        }
+
+        // CRITICAL (Bug 1 revised): full-capture mode. Route 0.0.0.0/0 so the
+        // VPN becomes the default network and the system sends DNS to our TUN.
+        // The [Forwarder] relays non-DNS traffic back to the real network.
         val builder = Builder()
             .setSession("WLT-Adblocker")
             .setMtu(VPN_MTU)
             .addAddress(VPN_ADDRESS, 32)
-            .addRoute(VPN_ROUTE, 32)  // CRITICAL FIX: prefix 32 = only route VPN address, NOT all traffic
-            .addDnsServer(VPN_DNS)
+            .addRoute(VPN_ROUTE, 0)   // default route → TUN (full capture)
+            .addDnsServer(VPN_ADDRESS)   // system DNS → TUN (10.66.6.6)
             .setBlocking(true)
             .setConfigureIntent(buildConfigureIntent() ?: return)
 
@@ -316,7 +387,15 @@ class WltVpnService : VpnService() {
         }
 
         isRunning = true
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // startForeground() was already called in onStartCommand (Bug 6 fix).
+        // Just update the notification with the final state.
+        updateNotification()
+        // Update DiagnosticState so the DiagnosticScreen shows live VPN status.
+        DiagnosticState.setVpnEstablished(
+            tunInterface = "tun0",
+            tunAddress = VPN_ADDRESS,
+            route = "0.0.0.0/0",
+        )
         packetJob = serviceScope.launch { packetLoop() }
         statsJob = serviceScope.launch { statsRecorder() }
         Log.i(TAG, "VPN started (bypass=${bypassApps.size} apps, paused=${isPaused()})")
@@ -340,6 +419,8 @@ class WltVpnService : VpnService() {
         }
         outputFile = null
         vpnInterface = null
+        forwarder = null  // release forwarder state (UDP/TCP sessions)
+        DiagnosticState.setVpnStopped()  // update diagnostic screen
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (e: Exception) {
@@ -396,16 +477,11 @@ class WltVpnService : VpnService() {
                     Log.d(TAG, "DoT port 853 blocked (TCP)")
                     return // Drop DoT packet
                 }
-
-                // Phase 2 — SNI inspection. Delegated to ConnectionFilter.
-                // OFF by default; only routes to ConnectionFilter if the user
-                // has explicitly enabled HTTPS-layer filtering. The filter
-                // itself lives outside this service (see ConnectionFilter.kt).
-                // For Phase 1 (DNS-only), we let TCP fall through unmodified
-                // — i.e., the VPN doesn't intercept it.
-                // Future: route to ConnectionFilter.handleTcpPacket here when enabled.
+                // Forward ALL TCP to the real network via protected sockets.
+                // (Future: route to ConnectionFilter for SNI inspection when enabled.)
+                forwarder?.forwardTcp(ipHeader, buf, headerLen, length)
             }
-            // ICMP and others: drop silently. VPN is DNS-only for now.
+            // ICMP and others: drop silently. The forwarder handles UDP+TCP.
         }
     }
 
@@ -429,8 +505,13 @@ class WltVpnService : VpnService() {
             return // Drop the packet — forces TCP fallback
         }
 
-        // Only intercept DNS (UDP/53). Other UDP is passed through unmodified.
-        if (udp.dstPort != DNS_PORT) return
+        // Only intercept DNS (UDP/53). All other UDP is forwarded to the real
+        // network via the [Forwarder] (protected sockets), so the internet keeps
+        // working while we intercept DNS.
+        if (udp.dstPort != DNS_PORT) {
+            forwarder?.forwardUdp(ipHeader, buf, udpOffset, totalLen)
+            return
+        }
 
         val dnsOffset = udpOffset + PacketIo.UDP_HEADER_LEN
         val dnsLen = totalLen - dnsOffset
@@ -494,6 +575,7 @@ class WltVpnService : VpnService() {
                         packageName = pkg,
                     )
                 )
+                DiagnosticState.addQuery(DiagnosticState.QueryEntry(domain, false, "allowed (paused)", pkg, System.currentTimeMillis()))
                 blockStats.incAllowed()
             } else {
                 // Upstream failed — fall back to NXDOMAIN so the client
@@ -508,9 +590,28 @@ class WltVpnService : VpnService() {
         // Check cache first — if we have a valid cached response, return it
         // immediately without hitting the block engine or upstream. This
         // reduces upstream queries by ~70% and provides <1ms cache hits.
+        //
+        // CRITICAL FIX (B-KOTLIN-VPN-DEBUG): DNS clients match responses to
+        // queries by the 16-bit transaction ID (first 2 bytes of the DNS
+        // message). A cached response carries the txId of the ORIGINAL query
+        // that populated the cache — every subsequent cache HIT would be for
+        // a DIFFERENT txId, so the client would silently drop our response
+        // and retry after a timeout. This bug made the DNS cache effectively
+        // useless (and actively harmful — it suppressed the real upstream
+        // query path). Fix: copy the cached response and overwrite the first
+        // 2 bytes with the current query's txId.
         val cached = dnsCache.get(domain)
         if (cached != null) {
-            writeResponse(ipHeader, udp, cached)
+            val queryTxId = DnsPacketParser.transactionId(dnsPacket)
+            val response = if (queryTxId != null && cached.size >= 2) {
+                // Copy so we don't mutate the shared cached entry.
+                val rewritten = cached.copyOf()
+                NetBytes.putUShort(rewritten, 0, queryTxId)
+                rewritten
+            } else {
+                cached
+            }
+            writeResponse(ipHeader, udp, response)
             // Don't log to QueryLog for cache hits — would flood the log.
             // Still update stats minimally.
             blockStats.incAllowed() // Approximate — we don't know if it was blocked
@@ -519,7 +620,14 @@ class WltVpnService : VpnService() {
 
         // === BLOCK CHECK ===
         val blocked = goBlockEngine.shouldBlock(domain)
-        val sdk = if (blocked) goBlockEngine.getLastBlockSdk() else kotlinBlockEngine.detectSdk(domain)
+        // CRITICAL FIX (B-KOTLIN-VPN-DEBUG): use detectSdk(domain) for BOTH
+        // blocked and allowed paths. The old code called getLastBlockSdk()
+        // for blocked queries — but that returns null when the Go engine is
+        // loaded (see GoBlockEngine.getLastBlockSdk), so every Go-engine
+        // block lost its SDK attribution in the query log. detectSdk(domain)
+        // works for both engines and returns the matching SDK name regardless
+        // of which cascade layer triggered the block.
+        val sdk = goBlockEngine.detectSdk(domain)
 
         if (blocked) {
             val reason = goBlockEngine.getLastBlockReason()
@@ -545,6 +653,7 @@ class WltVpnService : VpnService() {
                     packageName = pkg,
                 )
             )
+            DiagnosticState.addQuery(DiagnosticState.QueryEntry(domain, true, reason, pkg, System.currentTimeMillis()))
             Log.d(TAG, "BLOCKED: $domain ($reason${sdk?.let { " sdk=$it" } ?: ""})")
             return
         }
@@ -566,6 +675,7 @@ class WltVpnService : VpnService() {
                     packageName = pkg,
                 )
             )
+            DiagnosticState.addQuery(DiagnosticState.QueryEntry(domain, true, "upstream-failed", pkg, System.currentTimeMillis()))
             return
         }
 
@@ -592,6 +702,7 @@ class WltVpnService : VpnService() {
                         packageName = pkg,
                     )
                 )
+                DiagnosticState.addQuery(DiagnosticState.QueryEntry("$domain → $cname", true, "CNAME cloak: $cname", pkg, System.currentTimeMillis()))
                 return
             }
         }
@@ -619,6 +730,7 @@ class WltVpnService : VpnService() {
                 packageName = pkg,
             )
         )
+        DiagnosticState.addQuery(DiagnosticState.QueryEntry(domain, false, "allowed", pkg, System.currentTimeMillis()))
     }
 
     /**
@@ -714,6 +826,14 @@ class WltVpnService : VpnService() {
                 // Update notification every minute so the "X queries blocked"
                 // counter stays fresh.
                 updateNotification()
+                // Clean up expired UDP forwarding sessions.
+                forwarder?.cleanupExpiredSessions()
+                // Update Forwarder stats for the DiagnosticScreen.
+                DiagnosticState.setForwarderStats(
+                    tcp = forwarder?.getActiveTcpCount() ?: 0,
+                    udp = forwarder?.getActiveUdpCount() ?: 0,
+                    totalForwarded = 0L,  // TODO: track total forwarded packets
+                )
             } catch (e: Exception) {
                 Log.w(TAG, "Stats recorder error", e)
             }

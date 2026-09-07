@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,8 +17,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Http
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SportsEsports
@@ -54,6 +59,13 @@ import kotlinx.coroutines.launch
  *
  * Uses Compose Foundation's [HorizontalPager] (NOT the Accompanist version —
  * Accompanist has been deprecated since Compose 1.4).
+ *
+ * Polish (Task C-ANDROID-UI-POLISH):
+ *  - Hero icons rendered inside colored circular badges (more visual weight)
+ *  - Page title with "Page X of N" subtitle for clear progress
+ *  - Better spacing (24dp hero icon, 16dp subtitle)
+ *  - Wider "Get Started" button on the final page for emphasis
+ *  - Pill-shaped page indicator instead of plain dots
  */
 @Composable
 fun OnboardingScreen(
@@ -70,12 +82,26 @@ fun OnboardingScreen(
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
         ) {
-            // Top row: Skip button (top-right) — appears on all pages
-            // except the last.
+            // Top row: progress indicator (left) + Skip button (right).
+            // Skip is hidden on the last page so the user must explicitly
+            // choose "Get Started" or "Back" from the last page.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = "Step ${pagerState.currentPage + 1} of $pageCount",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
                 if (pagerState.currentPage < pageCount - 1) {
                     TextButton(onClick = onComplete) {
                         Text("Skip")
@@ -95,7 +121,7 @@ fun OnboardingScreen(
                 }
             }
 
-            // Page indicator dots
+            // Page indicator dots — pill-shaped, animated width.
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -105,8 +131,9 @@ fun OnboardingScreen(
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
-                            .size(if (isSelected) 12.dp else 8.dp)
-                            .clip(CircleShape)
+                            .height(if (isSelected) 10.dp else 8.dp)
+                            .width(if (isSelected) 24.dp else 8.dp)
+                            .clip(RoundedCornerShape(50))
                             .background(
                                 if (isSelected) {
                                     MaterialTheme.colorScheme.primary
@@ -143,12 +170,51 @@ fun OnboardingScreen(
                                 pagerState.animateScrollToPage(pagerState.currentPage + 1)
                             }
                         },
-                    ) { Text("Next") }
+                    ) {
+                        Text("Next")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("→", fontWeight = FontWeight.Bold)
+                    }
                 } else {
-                    Button(onClick = onComplete) { Text("Get Started") }
+                    Button(onClick = onComplete) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Get Started", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
+    }
+}
+
+// --- Hero icon badge — a circular tinted container that gives the icon
+//     visual weight at the top of each onboarding page. ---
+
+@Composable
+private fun HeroIconBadge(
+    icon: ImageVector,
+    size: Int = 96,
+    iconSize: Int = 48,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
+    bg: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primaryContainer,
+) {
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(bg),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(iconSize.dp),
+        )
     }
 }
 
@@ -161,11 +227,10 @@ private fun Page1Intro() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Shield,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(96.dp),
+        HeroIconBadge(
+            icon = Icons.Filled.Shield,
+            size = 120,
+            iconSize = 64,
         )
         Spacer(modifier = Modifier.size(24.dp))
         Text(
@@ -174,12 +239,20 @@ private fun Page1Intro() {
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        Spacer(modifier = Modifier.size(16.dp))
-        Text(
-            text = "No root. No cloud. No telemetry.",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Spacer(modifier = Modifier.size(8.dp))
+        // Tagline in a pill — makes it stand out from the body text.
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(50),
+        ) {
+            Text(
+                text = "No root · No cloud · No telemetry",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
         Spacer(modifier = Modifier.size(24.dp))
         Text(
             text = "A local VPN-based ad blocker for Android that puts " +
@@ -190,6 +263,46 @@ private fun Page1Intro() {
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onBackground,
         )
+        Spacer(modifier = Modifier.size(24.dp))
+        // Three quick guarantees as small inline chips.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            InlineFeatureChip(Icons.Filled.Lock, "Local-only")
+            Spacer(modifier = Modifier.width(8.dp))
+            InlineFeatureChip(Icons.Filled.Block, "Ad-free")
+            Spacer(modifier = Modifier.width(8.dp))
+            InlineFeatureChip(Icons.Filled.Security, "Private")
+        }
+    }
+}
+
+@Composable
+private fun InlineFeatureChip(icon: ImageVector, label: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(50),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
@@ -205,11 +318,12 @@ private fun Page2GameAdIntelligence() {
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = Icons.Filled.SportsEsports,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.size(64.dp),
+        HeroIconBadge(
+            icon = Icons.Filled.SportsEsports,
+            size = 96,
+            iconSize = 48,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            bg = MaterialTheme.colorScheme.secondaryContainer,
         )
         Spacer(modifier = Modifier.size(16.dp))
         Text(
@@ -243,12 +357,21 @@ private fun Page2GameAdIntelligence() {
                             .background(MaterialTheme.colorScheme.secondaryContainer)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Text(
-                            text = sdk,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.SportsEsports,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = sdk,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }
@@ -271,11 +394,10 @@ private fun Page3PrivacyByArchitecture() {
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Security,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(64.dp),
+        HeroIconBadge(
+            icon = Icons.Filled.Security,
+            size = 96,
+            iconSize = 48,
         )
         Spacer(modifier = Modifier.size(16.dp))
         Text(
@@ -285,18 +407,28 @@ private fun Page3PrivacyByArchitecture() {
             color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(modifier = Modifier.size(16.dp))
+        // Each guarantee rendered as a card row with a green checkmark
+        // circle on the left, for visual scanning.
         for (g in guarantees) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = g,
                     style = MaterialTheme.typography.bodyMedium,
@@ -311,21 +443,21 @@ private fun Page3PrivacyByArchitecture() {
 
 @Composable
 private fun Page4SmartCascade() {
+    // Each layer now has its own icon — gives visual differentiation.
     val layers = listOf(
-        "DNS" to "Block by domain at the resolver level",
-        "SNI" to "Inspect TLS ClientHello to block by hostname",
-        "HTTPS" to "MITM trusted connections to prune ads (CA-gated)",
-        "Scriptlet" to "Inject anti-adblock JS into web responses",
+        CascadeLayerInfo("DNS", "Block by domain at the resolver level", Icons.Filled.Dns),
+        CascadeLayerInfo("SNI", "Inspect TLS ClientHello to block by hostname", Icons.Filled.Public),
+        CascadeLayerInfo("HTTPS", "MITM trusted connections to prune ads (CA-gated)", Icons.Filled.Http),
+        CascadeLayerInfo("Scriptlet", "Inject anti-adblock JS into web responses", Icons.Filled.Block),
     )
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Shield,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(64.dp),
+        HeroIconBadge(
+            icon = Icons.Filled.Shield,
+            size = 96,
+            iconSize = 48,
         )
         Spacer(modifier = Modifier.size(16.dp))
         Text(
@@ -343,20 +475,20 @@ private fun Page4SmartCascade() {
             color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(modifier = Modifier.size(16.dp))
-        for ((idx, pair) in layers.withIndex()) {
-            val (name, desc) = pair
+        for ((idx, layer) in layers.withIndex()) {
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(12.dp),
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Numbered circle for the cascade order
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(32.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center,
@@ -369,15 +501,22 @@ private fun Page4SmartCascade() {
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Icon(
+                        imageVector = layer.icon,
+                        contentDescription = "${layer.name} layer",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = name,
+                            text = layer.name,
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = desc,
+                            text = layer.desc,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -391,7 +530,7 @@ private fun Page4SmartCascade() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Filled.Close,
+                imageVector = Icons.Filled.Security,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp),
@@ -406,3 +545,9 @@ private fun Page4SmartCascade() {
         }
     }
 }
+
+private data class CascadeLayerInfo(
+    val name: String,
+    val desc: String,
+    val icon: ImageVector,
+)

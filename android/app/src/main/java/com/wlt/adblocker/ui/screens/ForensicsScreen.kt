@@ -222,7 +222,8 @@ private fun ForensicEntryRow(entry: QueryLog.Entry) {
         Icon(
             imageVector = if (entry.blocked) Icons.Filled.Block
             else Icons.Filled.CheckCircle,
-            contentDescription = null,
+            contentDescription = if (entry.blocked) "Blocked: ${entry.domain}"
+            else "Allowed: ${entry.domain}",
             tint = if (entry.blocked) MaterialTheme.colorScheme.error
             else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp),
@@ -246,7 +247,7 @@ private fun ForensicEntryRow(entry: QueryLog.Entry) {
         if (entry.sdk != null) {
             Icon(
                 imageVector = Icons.Filled.SportsEsports,
-                contentDescription = null,
+                contentDescription = "Game ad SDK: ${entry.sdk}",
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(16.dp),
             )

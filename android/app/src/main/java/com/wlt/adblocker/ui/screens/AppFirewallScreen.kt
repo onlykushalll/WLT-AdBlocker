@@ -227,7 +227,7 @@ private fun AppRow(
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.Filled.SportsEsports,
-                        contentDescription = null,
+                        contentDescription = "Game app",
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp),
                     )

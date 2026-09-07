@@ -1,6 +1,7 @@
 package com.wlt.adblocker.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,7 +69,12 @@ fun CustomRulesScreen() {
     val rules by ruleStore.customRules.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    // Wrap the whole screen in a Box so the FAB can be aligned to the
+    // bottom-end of the screen OVER the Column. Previously the FAB's parent
+    // was a sibling Box, which broke `align(Alignment.BottomEnd)` because
+    // the parent layout wasn't a Box — the FAB ended up below the content.
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
             text = "Custom Rules",
             style = MaterialTheme.typography.headlineSmall,
@@ -142,11 +148,7 @@ fun CustomRulesScreen() {
         )
     }
 
-    // FAB for adding a rule. We use a Box overlay anchored bottom-end so
-    // the FAB floats above the LazyColumn.
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier.fillMaxSize(),
-    ) {
+        // FAB for adding a rule — aligned bottom-end within the outer Box.
         FloatingActionButton(
             onClick = { showAddDialog = true },
             modifier = Modifier
@@ -155,7 +157,7 @@ fun CustomRulesScreen() {
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
-            Icon(Icons.Filled.Add, contentDescription = "Add rule")
+            Icon(Icons.Filled.Add, contentDescription = "Add custom rule")
         }
     }
 }

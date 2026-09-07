@@ -131,6 +131,16 @@ class KotlinBlockEngine(
         Log.i(TAG, "Loaded $count rules from bundled blocklist assets")
     }
 
+    /** Returns the number of block rules currently in the trie.
+     *  Used by the DiagnosticScreen. */
+    fun getRuleCount(): Int = blocklistManager.current().blockCount
+
+    /** Returns the number of allow rules currently in the trie. */
+    fun getAllowCount(): Int = blocklistManager.current().allowCount
+
+    /** Returns the source of the loaded blocklists ("assets", "cache", "network", "unloaded"). */
+    fun getBlocklistSource(): String = blocklistManager.current().source
+
     /**
      * Returns true if [domain] should be blocked. Sets [lastBlockReason]
      * on the calling thread to a human-readable reason string.
