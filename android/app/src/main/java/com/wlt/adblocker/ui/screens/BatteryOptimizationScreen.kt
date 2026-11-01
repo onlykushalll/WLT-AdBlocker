@@ -207,7 +207,7 @@ private fun getOemInstructions(manufacturer: String, brand: String): List<OemIns
         steps = listOf(
             "Visit dontkillmyapp.com for device-specific guides",
             "Consider using a Custom ROM with less aggressive battery management",
-            "Report issues on GitHub: github.com/onlykushalll/WLT-AdBlocker/issues",
+            "Report issues on GitHub: official project repository",
         ),
     ))
 

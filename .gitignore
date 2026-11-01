@@ -125,3 +125,11 @@ skills/
 .claude/
 .codex/
 *.handoff.md
+
+*.py
+*.bat
+*.apk
+*.png
+*.txt
+*.log
+
