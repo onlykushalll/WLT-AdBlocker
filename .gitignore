@@ -35,8 +35,30 @@ keystore.properties
 # === Next.js / Node ===
 node_modules/
 .next/
+dist/
+build/
 out/
+
+# === Rust / Python ===
+target/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# === Databases & Environment ===
+.env
+.env.local
 .env*.local
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# === Exclusions ===
+dcozi/
+~dcozi/
 
 # === Build artifacts ===
 *.log
