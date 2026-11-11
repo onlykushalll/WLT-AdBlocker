@@ -1,6 +1,6 @@
 # WLT-Adblocker — Unique Features No Other Blocker Has
 
-*Features to build that NO existing open-source adblocker combines — WLT's competitive moat.*
+*Features built that NO competing mobile adblocker combines — WLT's proprietary competitive moat.*
 
 ---
 
@@ -10,7 +10,7 @@ After cataloguing **300+ features** across 35+ adblockers, the market gap is cle
 
 | What exists | What's missing |
 |-------------|----------------|
-| DNS blockers (Blokada, HostShield) | + HTTPS filtering + scriptlets in ONE free OSS app |
+| DNS blockers (Blokada, HostShield) | + HTTPS filtering + scriptlets in ONE unified on-device app |
 | HTTPS filterers (BlockAds) | + CNAME uncloaking + 50 list gallery + tracker SDK scanner |
 | Firewalls (Rethink, NetGuard) | + Full ad filter engine (not just DNS denylist) |
 | Browser blockers (uBlock Origin) | + System-wide game/app blocking on mobile |
@@ -267,7 +267,7 @@ WLT's UI will have a **"Protection Limits"** section explaining these honestly, 
                     ▼──────────────────────────────►
                     FREE                              PAID
                     
-                    100% ON-DEVICE / OPEN SOURCE
+                    100% ON-DEVICE / ZERO-TELEMETRY IP
 ```
 
 **WLT's pitch:** "Everything AdGuard Premium does for blocking, minus the subscription, minus the cloud, minus the trust-me-bro — plus game ad intelligence no one else has."

@@ -33,6 +33,6 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY DAMAGES, IN
 
 ---
 
-## 5. License
+## 5. Commercial Licensing & Rights
 
-WLT-AdBlocker is open-source software licensed under the MIT License.
+WLT-AdBlocker is proprietary software Copyright (c) 2026 Kushal (@onlykushalll). All rights reserved. This repository is provided exclusively for commercial licensing, technical due diligence, and evaluation under [`LICENSE.md`](LICENSE.md) (Contact: `creatormanager27@gmail.com`). Third-party Android/Go dependencies remain governed by their respective upstream licenses.

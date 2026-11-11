@@ -106,7 +106,7 @@ Adblocker/
 
 | Component | Choice | Reason |
 |-----------|--------|--------|
-| Filter engine | Go + [urlfilter](https://github.com/AdguardTeam/urlfilter) | Production-proven, GPL-compatible, DNSEngine built-in |
+| Filter engine | Custom clean-room Go `wlt-core` engine (initial planning compared [urlfilter](https://github.com/AdguardTeam/urlfilter)) | Zero GPL dependencies; clean-room proprietary Go core built with BSD-3-Clause `gomobile` bindings |
 | Android UI | Kotlin + Jetpack Compose + Material 3 | Modern, matches BlockAds/HostShield quality |
 | VPN | Android VpnService API | No root required, system-wide |
 | TCP/IP stack | gVisor netstack (via firestack) | Phase 2 HTTPS proxy |
@@ -229,7 +229,7 @@ WLT-Adblocker is designed to be **trustworthy by architecture**, not by policy:
 
 1. **All filtering on-device** — no cloud dependency for blocking decisions
 2. **No telemetry** — zero data leaves the device
-3. **Open source** — every line auditable on GitHub
+3. **Full source auditability** — every line of on-device Go and Kotlin logic is inspectable under NDA/evaluation (zero obfuscated third-party ad/analytics SDKs)
 4. **Minimal permissions** — VPN + notification only (Phase 1)
 5. **No account required** — no signup, no email
 6. **Blocklist sources are public** — user can inspect every list

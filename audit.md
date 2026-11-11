@@ -86,7 +86,7 @@ Total findings by severity: P0 [0] · P1 [1] · P2 [3] · P3 [2]
 - **Category:** Code Hygiene
 - **Location:** Root directory (`*.bat`, `*.txt`, `*.py` adb test helpers)
 - **Issue:** Numerous local testing scripts (`adb-test.bat`, `check-lean.py`, `grant.txt`) reside in root.
-- **User impact:** Clutters repository navigation for open-source contributors.
+- **User impact:** Clutters repository navigation for technical evaluators and developers.
 - **Fix:** Move local automation helpers into `tools/` or add to `.gitignore`.
 
 ---

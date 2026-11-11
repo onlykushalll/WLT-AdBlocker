@@ -113,8 +113,8 @@ cd android
 
 ## Building
 
-See [README.md](README#building-from-source) for build instructions.
+See [README.md](README.md#building-from-source) for build instructions.
 
-## License
+## License & Commercial Contributions
 
-By contributing, you agree that your contributions will be licensed under the GPL v3 license.
+WLT-AdBlocker is proprietary software Copyright (c) 2026 Kushal (`@onlykushalll`). All authorized contributions or evaluation patches submitted to this repository are governed by [`LICENSE.md`](LICENSE.md). For commercial licensing or M&A diligence inquiries, contact `creatormanager27@gmail.com`.

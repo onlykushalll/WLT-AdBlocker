@@ -136,7 +136,7 @@ wlt-core/
 └── blocklist/       # List downloader, compiler, updater
 ```
 
-**Recommended base:** [AdguardTeam/urlfilter](https://github.com/AdguardTeam/urlfilter) (Go, GPL-3.0, actively maintained, has DNSEngine + NetworkEngine)
+**Initial research option (superseded):** [AdguardTeam/urlfilter](https://github.com/AdguardTeam/urlfilter) (Go, GPL-3.0). *Production implementation uses a custom, clean-room Go core (`wlt-core`) with zero GPL dependencies.*
 
 ### 4.2 Android VPN Service
 
@@ -216,7 +216,7 @@ Realistic targets for WLT-Adblocker:
 | Startup time | **< 2s** | Pre-compiled blocklists on disk |
 | False positive rate | **< 0.1%** | Allowlist + passthrough list |
 
-**"Un-bypassable" is not achievable.** Google, Meta, and ad networks employ full-time engineers to evade blockers. WLT-Adblocker's goal is to be **the hardest to bypass among open-source options** through multi-layer defense and rapid filter updates.
+**"Un-bypassable" is not achievable.** Google, Meta, and ad networks employ full-time engineers to evade blockers. WLT-Adblocker's goal is to be **the hardest on-device mobile blocker to bypass** through multi-layer defense and rapid filter updates.
 
 ---
 
@@ -225,7 +225,7 @@ Realistic targets for WLT-Adblocker:
 - Ad blocking is legal in most jurisdictions for personal use
 - Google Play **removed AdAway** for violating Developer Distribution Agreement section 4.4
 - Distribution: F-Droid, GitHub Releases, direct APK — not Google Play (unless using "privacy tool" framing carefully)
-- GPL-3.0 license required if using AdGuard urlfilter
+- GPL-3.0 license required if linking AdGuard `urlfilter` (**Implementation Status Note:** Production `wlt-core/` was implemented as a clean-room Go engine using only Go stdlib and `golang.org/x/mobile` BSD-3-Clause dependencies — it does **not** import `AdguardTeam/urlfilter` or any GPL code; see [`LICENSE.md`](../LICENSE.md))
 - HTTPS MITM requires clear user consent and CA cert installation
 
 ---

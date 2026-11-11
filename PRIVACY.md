@@ -2,7 +2,7 @@
 
 **Last updated: July 25, 2026**
 
-WLT-AdBlocker ("WLT", "we", "us", "our") is a privacy-first, open-source Android ad blocker. This privacy policy explains what data we collect (spoiler: nothing) and how the app works.
+WLT-AdBlocker ("WLT", "we", "us", "our") is a privacy-first, on-device Android ad blocker. This privacy policy explains what data we process locally, what data we collect (none), and how the app works.
 
 ## The Short Version
 
@@ -134,14 +134,14 @@ WLT requests the following Android permissions:
 
 **WLT does not request internet permission for telemetry — only for forwarding DNS queries upstream.**
 
-## Open Source
+## Proprietary Asset & Source Auditability
 
-WLT is 100% open source under GPL v3. You can audit every line of code at: https://github.com/onlykushalll/WLT-AdBlocker
+WLT-AdBlocker is proprietary commercial software evaluated under [`LICENSE.md`](LICENSE.md), engineered with a strict **zero-telemetry, 100% on-device privacy guarantee**. Authorized evaluators and IP acquirers receive full source access to `wlt-core/` and `android/` to independently verify every privacy claim.
 
 ## Changes to This Policy
 
-We will update this privacy policy if needed. All changes will be committed to the public GitHub repository.
+Updates to this policy are tracked in the repository alongside release documentation.
 
 ## Contact
 
-For privacy questions or concerns, open an issue on GitHub: https://github.com/onlykushalll/WLT-AdBlocker/issues
+For privacy, security, or commercial evaluation inquiries, contact `creatormanager27@gmail.com`.
