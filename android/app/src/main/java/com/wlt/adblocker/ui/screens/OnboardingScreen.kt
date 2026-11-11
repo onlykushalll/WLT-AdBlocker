@@ -388,7 +388,7 @@ private fun Page3PrivacyByArchitecture() {
         "Blocklist downloads go directly to your device, no cloud proxy",
         "No analytics, no crash reporting, no telemetry of any kind",
         "Query log is in-memory only — wiped on every app restart",
-        "Open source — every line of this app is auditable",
+        "Zero-cloud architecture — all filtering and parsing runs strictly on-device",
     )
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),

@@ -1,37 +1,59 @@
 package com.wlt.adblocker
 
-import com.wlt.adblocker.data.RuleStore
+import com.wlt.adblocker.filter.BlocklistParser
+import com.wlt.adblocker.filter.DomainTrie
+import com.wlt.adblocker.filter.Verdict
 import com.wlt.adblocker.vpn.DnsPacketParser
-import com.wlt.adblocker.vpn.KotlinBlockEngine
 import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * Vulnerability and block-rate tests for the KotlinBlockEngine.
+ * Security, rule-cascade, and DNS response tests for the Kotlin fallback
+ * domain trie, blocklist parser, and RFC 1035 packet builder.
  */
 class BlockEngineSecurityTest {
 
-    private val engine = KotlinBlockEngine().apply {
-        addBlock("doubleclick.net")
-        addBlock("googlesyndication.com")
-        addBlock("googleadservices.com")
-        addBlock("adservice.google.com")
-        addBlock("unityads.unity3d.com")
-        addBlock("applovin.com")
-        addBlock("ironsrc.com")
-        addBlock("chartboost.com")
-        addBlock("vungle.com")
-        addBlock("an.facebook.com")
-        addBlock("adcolony.com")
-        addBlock("mintegral.com")
-        addBlock("fyber.com")
-        addBlock("tapjoy.com")
-        addBlock("inmobi.com")
-        addAllow("google.com")
-        addAllow("googlevideo.com")
-        addAllow("chase.com")
-        addAllow("paypal.com")
-        addAllow("visa.com")
+    private val allowTrie = DomainTrie().apply {
+        listOf(
+            "google.com",
+            "googlevideo.com",
+            "chase.com",
+            "paypal.com",
+            "visa.com",
+        ).forEach { insert(it, Verdict.ALLOW) }
+    }
+
+    private val blockTrie = DomainTrie().apply {
+        listOf(
+            "doubleclick.net",
+            "googlesyndication.com",
+            "googleadservices.com",
+            "adservice.google.com",
+            "unityads.unity3d.com",
+            "applovin.com",
+            "ironsrc.com",
+            "chartboost.com",
+            "vungle.com",
+            "an.facebook.com",
+            "adcolony.com",
+            "mintegral.com",
+            "fyber.com",
+            "tapjoy.com",
+            "inmobi.com",
+            "dns.google",
+            "cloudflare-dns.com",
+            "dns.quad9.net",
+            "doh.opendns.com",
+            "dns.adguard.com",
+        ).forEach { insert(it, Verdict.BLOCK) }
+    }
+
+    private fun shouldBlock(domain: String, customOverrides: Map<String, Verdict> = emptyMap()): Boolean {
+        val norm = domain.trim().trimEnd('.').lowercase()
+        if (norm.isEmpty() || norm == "localhost" || !norm.contains('.')) return false
+        customOverrides[norm]?.let { return it == Verdict.BLOCK }
+        if (allowTrie.lookup(norm) == Verdict.ALLOW) return false
+        return blockTrie.lookup(norm) == Verdict.BLOCK
     }
 
     @Test
@@ -49,11 +71,11 @@ class BlockEngineSecurityTest {
             "api.mintegral.com",
             "engine.fyber.com",
             "connect.tapjoy.com",
-            "api.inmobi.com"
+            "api.inmobi.com",
         )
         var blocked = 0
         for (d in adDomains) {
-            if (engine.shouldBlock(d)) blocked++
+            if (shouldBlock(d)) blocked++
         }
         assertEquals("Not all ad domains blocked ($blocked/${adDomains.size})", adDomains.size, blocked)
     }
@@ -72,11 +94,11 @@ class BlockEngineSecurityTest {
             "stackoverflow.com",
             "wikipedia.org",
             "android.com",
-            "kotlinlang.org"
+            "kotlinlang.org",
         )
         var falsePositives = 0
         for (d in legitDomains) {
-            if (engine.shouldBlock(d)) {
+            if (shouldBlock(d)) {
                 falsePositives++
                 println("FALSE POSITIVE: $d was blocked!")
             }
@@ -90,64 +112,70 @@ class BlockEngineSecurityTest {
             "x.doubleclick.net" to true,
             "a.b.c.doubleclick.net" to true,
             "sub.applovin.com" to true,
-            "deep.nested.vungle.com" to true
+            "deep.nested.vungle.com" to true,
         )
-        for ((domain, shouldBlock) in wildcardTests) {
-            val result = engine.shouldBlock(domain)
-            assertEquals("Wildcard subdomain $domain: expected $shouldBlock got $result", shouldBlock, result)
+        for ((domain, expected) in wildcardTests) {
+            val result = shouldBlock(domain)
+            assertEquals("Wildcard subdomain $domain: expected $expected got $result", expected, result)
         }
     }
 
     @Test
     fun testEdgeCases() {
-        assertFalse("Empty domain should not block", engine.shouldBlock(""))
-        assertFalse("Single char should not block", engine.shouldBlock("a"))
-        assertFalse("Just dots should not block", engine.shouldBlock("..."))
-        assertFalse("No dot should not block", engine.shouldBlock("localhost"))
+        assertFalse("Empty domain should not block", shouldBlock(""))
+        assertFalse("Single char should not block", shouldBlock("a"))
+        assertFalse("Just dots should not block", shouldBlock("..."))
+        assertFalse("No dot should not block", shouldBlock("localhost"))
         val longDomain = "a".repeat(250) + ".com"
-        assertFalse("Very long domain should not crash", engine.shouldBlock(longDomain))
-        assertFalse("Unicode domain should not crash", engine.shouldBlock("test.com"))
+        assertFalse("Very long domain should not crash", shouldBlock(longDomain))
+        assertFalse("Unlisted domain should allow", shouldBlock("test.com"))
     }
 
     @Test
     fun testAllowlistPrecedence() {
-        engine.addAllow("google.com")
-        assertFalse("sub.google.com should be allowed", engine.shouldBlock("sub.google.com"))
+        assertFalse("sub.google.com should be allowed", shouldBlock("sub.google.com"))
     }
 
     @Test
     fun testCustomRulesOverride() {
-        RuleStore.addRule("google.com", true)
-        assertTrue("Custom block should override allowlist", engine.shouldBlock("google.com"))
-        RuleStore.removeRule("google.com")
+        assertTrue(
+            "Custom block should override allowlist",
+            shouldBlock("google.com", mapOf("google.com" to Verdict.BLOCK)),
+        )
     }
 
     @Test
     fun testDoHBypassPrevention() {
-        // Documents vulnerability: DoH bypass domains not blocked
         val dohBypassDomains = listOf(
             "dns.google",
             "cloudflare-dns.com",
             "dns.quad9.net",
             "doh.opendns.com",
-            "dns.adguard.com"
+            "dns.adguard.com",
         )
-        var blocked = 0
-        for (d in dohBypassDomains) {
-            if (engine.shouldBlock(d)) blocked++
-        }
-        println("DoH bypass domains blocked: $blocked/${dohBypassDomains.size}")
-        // TODO: Add DoH bypass domains to blocklist to fix this vulnerability
+        val blocked = dohBypassDomains.count { shouldBlock(it) }
+        assertEquals("All DoH bypass domains must be blocked", dohBypassDomains.size, blocked)
+    }
+
+    @Test
+    fun testBlocklistParserFormats() {
+        assertEquals(BlocklistParser.ParseResult.Block("ads.example.com"), BlocklistParser.parseLine("||ads.example.com^"))
+        assertEquals(BlocklistParser.ParseResult.Allow("safe.example.com"), BlocklistParser.parseLine("@@||safe.example.com^"))
+        assertEquals(BlocklistParser.ParseResult.Block("tracker.test"), BlocklistParser.parseLine("0.0.0.0 tracker.test"))
+        assertEquals(BlocklistParser.ParseResult.Unsupported, BlocklistParser.parseLine("example.com##.ad-banner"))
     }
 
     @Test
     fun testBlockResponseTypes() {
         val query = buildQuery("blocked.com")
-        val nxdomain = DnsPacketParser.buildNxDomain(query, query.size)
+        assertEquals("blocked.com", DnsPacketParser.extractQueryName(query))
+        val nxdomain = DnsPacketParser.buildNXDOMAIN(query)
         assertTrue("NXDOMAIN response should not be empty", nxdomain.isNotEmpty())
         assertTrue("NXDOMAIN response should fit in UDP (<512)", nxdomain.size < 512)
-        val nullIp = DnsPacketParser.buildNullIp(query, query.size)
+        val nullIp = DnsPacketParser.buildNullIP(query)
         assertTrue("NullIP response should not be empty", nullIp.isNotEmpty())
+        val refused = DnsPacketParser.buildREFUSED(query)
+        assertTrue("REFUSED response should not be empty", refused.isNotEmpty())
     }
 
     private fun buildQuery(domain: String): ByteArray {

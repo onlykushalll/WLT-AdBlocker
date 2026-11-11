@@ -49,7 +49,7 @@ import com.wlt.adblocker.vpn.BlockStats
  * Section 4: Auto-update blocklists toggle (24h WorkManager)
  * Section 5: Theme selector (System / Light / Dark)
  * Section 6: Privacy (no telemetry notice, export/import buttons)
- * Section 7: About (version, open-source link)
+ * Section 7: About (version, licensing & privacy notice)
  *
  * Toggles write to a (TODO) WltDataStore; for now they're local state only.
  * The actual VPN service reads these on startup. Writing them requires the
@@ -216,7 +216,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Open-source local VPN ad blocker for Android.",
+                text = "Zero-telemetry local VPN ad blocker for Android.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
